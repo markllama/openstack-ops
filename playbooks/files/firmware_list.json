@@ -1,0 +1,246 @@
+{
+  "ProLiant DL360 Gen9": {
+    "spp-gen": "gen9",
+    "spp-version": "2019.12.0",
+    "NIC": {
+        "check": "ethtool -i {{ nic }} | grep firmware | cut -d:  -f2- | tr -d ' '",
+        "ver": "5719-v1.46NCSIv1.5.12.0",
+        "fwpkg": "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm",
+        "md5": "c0d1d2a1199e59c020b54aee844e2fb4",
+        "inp": "\n",
+        "ret": "1"
+    },
+    "SYSTEM": {
+        "check": "hpasmcli -s \"show server\" | grep ROM | cut -d: -f2- | tr -d ' '",
+        "ver": "10/21/2019",
+        "fwpkg": "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm",
+        "md5": "952e3b3244dd818084fbd09cc3f8c14e",
+        "inp": "y\nn\n",
+        "ret": "1"
+    },
+    "SYSTEM-MELTDOWN": {
+        "check": "hpasmcli -s \"show server\" | grep ROM | cut -d: -f2- | tr -d ' '",
+        "ver": "10/21/2019",
+        "fwpkg": "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm",
+        "md5": "952e3b3244dd818084fbd09cc3f8c14e",
+        "inp": "y\nn\n",
+        "ret": "1"
+    },
+    "RAID": {
+        "check": "ssacli controller all show config detail | grep -i 'firmware version' | cut -d: -f2 | tr -d ' '| head -1",
+        "ver": "7.00",
+        "fwpkg": "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm",
+        "md5": "84261221942a6dd6bd6898620f460f56",
+        "inp": "A\n",
+        "ret": "1"
+    },
+    "ILO": {
+        "check": "hponcfg -h | awk '/Firmware/ {print $4}'",
+        "ver": "2.73",
+        "fwpkg": "hp-firmware-ilo4-2.73-1.1.i386.rpm",
+        "md5": "c436f2200c8341cdb4c44899954038bc",
+        "inp": "y\n",
+        "ret": "0"
+    },
+    "INIC": {
+        "ver": {
+            "560FLB": "800008F0",
+            "560FLR-SFP+": "80000838",
+            "560SFP+": "80000835",
+            "560M": "8000083D",
+            "561FLR-T": "800005B6",
+            "561T": "80000636",
+            "562i": "800006FC",
+            "562FLR-SFP+": "800038C9",
+            "562SFP+": "800038C8",
+            "563i": "800035C0"
+        },
+        "fwpkg": "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm",
+        "md5": "c2af9badd28debbee468486ecac9fc4e",
+        "ret": "1"
+    }
+  },
+  "ProLiant DL380 Gen9": {
+    "spp-gen": "gen9",
+    "spp-version": "2019.12.0",
+    "NIC": {
+        "check": "ethtool -i {{ nic }} | grep firmware | cut -d:  -f2- | tr -d ' '",
+        "ver": "5719-v1.46NCSIv1.5.12.0",
+        "fwpkg": "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm",
+        "md5": "c0d1d2a1199e59c020b54aee844e2fb4",
+        "inp": "\n",
+        "ret": "1"
+    },
+    "SYSTEM": {
+      "check": "hpasmcli -s \"show server\" | grep ROM | cut -d: -f2- | tr -d ' '",
+      "ver": "02/17/2017",
+      "fwpkg": "hp-firmware-system-p89-2.40_2017_02_17-2.1.i386.rpm",
+      "md5": "4506ed3576c05989070fbe75bb58d65e",
+      "inp": "y\nn\n",
+      "ret": "1"
+    },
+    "SYSTEM-MELTDOWN": {
+      "check": "hpasmcli -s \"show server\" | grep ROM | cut -d: -f2- | tr -d ' '",
+      "ver": "10/21/2019",
+      "fwpkg": "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm",
+      "md5": "952e3b3244dd818084fbd09cc3f8c14e",
+      "inp": "y\nn\n",
+      "ret": "1"
+    },
+    "RAID": {
+        "check": "ssacli controller all show config detail | grep -i 'firmware version' | cut -d: -f2 | tr -d ' '| head -1",
+        "ver": "7.00",
+        "fwpkg": "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm",
+        "md5": "84261221942a6dd6bd6898620f460f56",
+        "inp": "A\n",
+        "ret": "1"
+    },
+    "ILO": {
+        "check": "hponcfg -h | awk '/Firmware/ {print $4}'",
+        "ver": "2.73",
+        "fwpkg": "hp-firmware-ilo4-2.73-1.1.i386.rpm",
+        "md5": "c436f2200c8341cdb4c44899954038bc",
+        "inp": "y\n",
+        "ret": "0"
+    },
+    "INIC": {
+        "ver": {
+            "560FLB": "800008F0",
+            "560FLR-SFP+": "80000838",
+            "560SFP+": "80000835",
+            "560M": "8000083D",
+            "561FLR-T": "800005B6",
+            "561T": "80000636",
+            "562i": "800006FC",
+            "562FLR-SFP+": "800038C9",
+            "562SFP+": "800038C8",
+            "563i": "800035C0"
+        },
+        "fwpkg": "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm",
+        "md5": "c2af9badd28debbee468486ecac9fc4e",
+        "ret": "1"
+    }
+  },
+  "ProLiant DL360 Gen10": {
+    "spp-gen": "gen10",
+    "spp-version": "2019.12.0",
+    "NIC": {
+        "check": "ethtool -i {{ nic }} | grep firmware | cut -d:  -f2- | tr -d ' '",
+        "ver": "5719-v1.46NCSIv1.5.12.0",
+        "fwpkg": "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm",
+        "md5": "c0d1d2a1199e59c020b54aee844e2fb4",
+        "inp": "\n",
+        "ret": "1"
+    },
+    "SYSTEM": {
+        "check": "ipmitool fru |grep 'MB BIOS' -A5 |awk -F ': ' '/Product Version/ {print $2}'",
+        "ver": "03/09/2020",
+        "fwpkg": "hp-firmware-system-u32-2.32_2020_03_09-1.1.x86_64.rpm",
+        "md5": "5d8377fee36b74635699a5ec9f62b9b3",
+        "inp": "y\nn\n",
+        "ret": "1"
+    },
+    "SYSTEM-MELTDOWN": {
+        "check": "ipmitool fru |grep 'MB BIOS' -A5 |awk -F ': ' '/Product Version/ {print $2}'",
+        "ver": "03/09/2020",
+        "fwpkg": "hp-firmware-system-u32-2.32_2020_03_09-1.1.x86_64.rpm",
+        "md5": "5d8377fee36b74635699a5ec9f62b9b3",
+        "inp": "y\nn\n",
+        "ret": "1"
+    },
+    "RAID": {
+        "check": "ssacli controller all show config detail | grep -i 'firmware version' | cut -d: -f2 | tr -d ' '| head -1",
+        "ver": "2.65",
+        "fwpkg": "hp-firmware-smartarray-f7c07bdbbd-2.65-1.1.x86_64.rpm",
+        "md5": "4e950035ad39eec3dc013c998d6acde0",
+        "inp": "A\n",
+        "ret": "1"
+    },
+    "ILO": {
+        "check": "hponcfg -h | awk '/Firmware/ {print $4}'",
+        "ver": "2.14",
+        "fwpkg": "hp-firmware-ilo5-2.14-1.1.x86_64.rpm",
+        "md5": "5049dcb80f0af9b63ceb5aba051750c2",
+        "inp": "y\n",
+        "ret": "0"
+    },
+    "INIC": {
+        "ver": {
+            "560FLB": "800008F0",
+            "560FLR-SFP+": "80000838",
+            "560SFP+": "80000835",
+            "560M": "8000083D",
+            "561FLR-T": "800005B6",
+            "561T": "80000636",
+            "562i": "800006FC",
+            "562FLR-SFP+": "800038C9",
+            "562SFP+": "800038C8",
+            "563i": "800035C0"
+        },
+        "fwpkg": "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm",
+        "md5": "c2af9badd28debbee468486ecac9fc4e",
+        "ret": "1"
+    }
+  },
+  "ProLiant DL380 Gen10": {
+    "spp-gen": "gen10",
+    "spp-version": "2019.12.0",
+    "NIC": {
+        "check": "ethtool -i {{ nic }} | grep firmware | cut -d:  -f2- | tr -d ' '",
+        "ver": "5719-v1.46NCSIv1.5.12.0",
+        "fwpkg": "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm",
+        "md5": "c0d1d2a1199e59c020b54aee844e2fb4",
+        "inp": "\n",
+        "ret": "1"
+    },
+    "SYSTEM": {
+      "check": "ipmitool fru |grep 'MB BIOS' -A5 |awk -F ': ' '/Product Version/ {print $2}'",
+      "ver": "11/13/2019",
+      "fwpkg": "hp-firmware-system-u30-2.22_2019_11_13-1.1.x86_64.rpm",
+      "md5": "071d68e372601a62ecaee54bf119daf8",
+      "inp": "y\nn\n",
+      "ret": "1"
+    },
+    "SYSTEM-MELTDOWN": {
+      "check": "ipmitool fru |grep 'MB BIOS' -A5 |awk -F ': ' '/Product Version/ {print $2}'",
+      "ver": "11/13/2019",
+      "fwpkg": "hp-firmware-system-u30-2.22_2019_11_13-1.1.x86_64.rpm",
+      "md5": "071d68e372601a62ecaee54bf119daf8",
+      "inp": "y\nn\n",
+      "ret": "1"
+    },
+    "RAID": {
+        "check": "ssacli controller all show config detail | grep -i 'firmware version' | cut -d: -f2 | tr -d ' '| head -1",
+        "ver": "2.65",
+        "fwpkg": "hp-firmware-smartarray-f7c07bdbbd-2.65-1.1.x86_64.rpm",
+        "md5": "4e950035ad39eec3dc013c998d6acde0",
+        "inp": "A\n",
+        "ret": "1"
+    },
+    "ILO": {
+        "check": "hponcfg -h | awk '/Firmware/ {print $4}'",
+        "ver": "2.14",
+        "fwpkg": "hp-firmware-ilo5-2.14-1.1.x86_64.rpm",
+        "md5": "5049dcb80f0af9b63ceb5aba051750c2",
+        "inp": "y\n",
+        "ret": "0"
+    },
+    "INIC": {
+        "ver": {
+            "560FLB": "800008F0",
+            "560FLR-SFP+": "80000838",
+            "560SFP+": "80000835",
+            "560M": "8000083D",
+            "561FLR-T": "800005B6",
+            "561T": "80000636",
+            "562i": "800006FC",
+            "562FLR-SFP+": "800038C9",
+            "562SFP+": "800038C8",
+            "563i": "800035C0"
+        },
+        "fwpkg": "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm",
+        "md5": "c2af9badd28debbee468486ecac9fc4e",
+        "ret": "1"
+    }
+  }
+}

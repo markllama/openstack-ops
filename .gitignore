@@ -44,3 +44,6 @@ coverage.xml
 .idea
 *.iml
 .DS_Store
+
+# Emacs backup files
+*~

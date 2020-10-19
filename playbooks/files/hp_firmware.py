@@ -21,10 +21,16 @@ Update HP firmware on a host running RHEL 7
 """
 
 import json
+import os
 import platform
 import re
-import os
+import subprocess
 
+# ------------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------------
+#
+hp_health_version = "10.90"
 
 # ------------------------------------------------------------------------
 # NIC discovery functions
@@ -77,6 +83,92 @@ def is_redhat():
   """
   return "Red Hat Enterprise Linux Server" in platform.linux.distribution()
 
+
+"""
+These are the patterns for the upstream repo URL and for the Rackspace mirror
+"""
+yum_baseurl_templates = {
+  "hp": "https://downloads.linux.hpe.com/SDR/repo/spp-{}/rhel/$releasever/$basearch/{}",
+  "rackspace": ""
+}
+
+"""
+This string is a template for the complete YUM repo file
+"""
+yum_repo_template = """\
+[hp-spp]
+name = HP Service Pack for ProliantPackage
+baseurl = {}
+enabled = 1
+gpgcheck = 1
+gpgkey = https://downloads.linux.hpe.com/SDR/repo/spp/GPG-KEY-spp
+"""
+
+def write_yum_repo_spec(system_spec, rpm_source='hp'):
+  """
+  Create or update the YUM repository spec for the HP firmware packages
+  """
+  repo_filename = "/etc/yum.repos.d/hp-spp.repo"
+
+  # set the hardware specific parts of the repo URL
+  baseurl = yum_baseurl_templates[rpm_source].format(system_spec['spp-gen'], system_spec['spp-version'])
+  repo_spec = yum_repo_template.format(baseurl)
+    
+  repo_fd = open(repo_filename, "w+")
+  repo_fd.write(repo_spec)
+  repo_fd.close()
+
+def get_rpm_version(package_name):
+  """
+  Get the package version string for the provided package
+  """
+
+  # The rpm command to query the version of a package
+  query_command_template = "rpm -q --qf '%{VERSION}' {}"
+  query_command=query_command_template.format(package_name)
+  
+  # Run the query command
+  get_version = subprocess.Popen(query_command, stdout=PIPE, stderr=PIPE, shell=True)
+
+  # get the version string from the output. Stdout is the first element of the returned tuple
+  version_string = get_version.communicate()[0].decode(encoding='UTF-8')
+
+  return version_string
+
+def cmp_version_string(vs0, vs1):
+  """
+  :param vs0: the first version string
+  :param vs1: the second version string
+  :return: int (1, 0, -1) for vs0 > = < vs1
+
+  Compare two version strings of the form MM.mm[.bb]
+  Where:
+    MM - Major Version Number
+    mm - Minor Version Number
+    bb - Build Number
+
+  TO DO: Check for different length 
+  """
+
+  v0 = [int(n) for n in vs0.split('.')]
+  v1 = [int(n) for n in vs1.split('.')]
+
+  # Compare the major numbers
+  if v0[0] != v1[0]:
+    return 1 if v0[0] > v1[0] else -1
+
+  # Compare the minor numbers
+  if v0[1] != v1[1]:
+    return 1 if v0[1] > v1[1] else -1
+
+  # Compare the build numbers
+  if v0[2] != v1[2]:
+    return 1 if v0[2] > v1[2] else -1
+
+  # The version strings are the same
+  return 0
+
+  
 # ------------------------------------------------------------------------
 # Data Load/Access function
 # ------------------------------------------------------------------------
@@ -126,3 +218,9 @@ def load_firmware_data(filename):
 if __name__ == "__main__":
   nics = get_broadcom_nics()
   firmware_specs = load_firmware_data("firmware_list.json")
+
+  # create/update hp-spp yum repo file
+
+  # update utility packages (if necessary)
+  # - gen9 - hp-health package -> 10.90
+  

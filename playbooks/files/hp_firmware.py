@@ -13,12 +13,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 Update HP firmware on a host running RHEL 7
 
 
 """
+
+# Minimal Python 2->3 portability
+from __future__ import print_function
 
 import json
 import os
@@ -168,7 +170,6 @@ def cmp_version_string(vs0, vs1):
   # The version strings are the same
   return 0
 
-  
 # ------------------------------------------------------------------------
 # Data Load/Access function
 # ------------------------------------------------------------------------
@@ -212,6 +213,15 @@ def load_firmware_data(filename):
 
   return json.load(open(filename), object_hook=_decode_dict)
 
+def get_firmware():
+  pass
+
+def install_firmware_rpm():
+  pass
+
+def install_firmware_cpio():
+  pass
+
 # ========================================================================
 # MAIN
 # ========================================================================
@@ -223,4 +233,7 @@ if __name__ == "__main__":
 
   # update utility packages (if necessary)
   # - gen9 - hp-health package -> 10.90
-  
+
+  # get firmware packages
+
+  # install firmware packages

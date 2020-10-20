@@ -83,7 +83,8 @@ def is_redhat():
   """
   Indicate if the host is running a Red Hat distribution
   """
-  return "Red Hat Enterprise Linux Server" in platform.linux.distribution()
+  # The first ele
+  return "Red Hat Enterprise Linux Server" == platform.linux_distribution()[0]
 
 
 """
@@ -91,7 +92,7 @@ These are the patterns for the upstream repo URL and for the Rackspace mirror
 """
 yum_baseurl_templates = {
   "hp": "https://downloads.linux.hpe.com/SDR/repo/spp-{}/rhel/$releasever/$basearch/{}",
-  "rackspace": ""
+  "rackspace": "http://mirror.rackspace.com/hp/SDR/repo/spp/rhel/$releasever/$basearch/current"
 }
 
 """

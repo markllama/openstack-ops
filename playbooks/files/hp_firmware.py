@@ -22,17 +22,32 @@ Update HP firmware on a host running RHEL 7
 # Minimal Python 2->3 portability
 from __future__ import print_function
 
+import argparse
 import json
 import os
 import platform
 import re
 import subprocess
+import sys
 
 # ------------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------------
 #
 hp_health_version = "10.90"
+
+# ------------------------------------------------------------------------
+# CLI Argument Processing
+# ------------------------------------------------------------------------
+#
+def process_cli(args):
+  parser = argparse.ArgumentParser()
+
+  
+  opts = parser.parse_args(args)
+
+  return opts
+
 
 # ------------------------------------------------------------------------
 # NIC discovery functions
@@ -227,8 +242,10 @@ def install_firmware_cpio():
 # MAIN
 # ========================================================================
 if __name__ == "__main__":
-  nics = get_broadcom_nics()
-  firmware_specs = load_firmware_data("firmware_list.json")
+  opts = process_cli(sys.argv[1:])
+
+  #nics = get_broadcom_nics()
+  #firmware_specs = load_firmware_data("firmware_list.json")
 
   # create/update hp-spp yum repo file
 

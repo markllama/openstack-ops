@@ -34,6 +34,7 @@ import sys
 # Constants
 # ------------------------------------------------------------------------
 #
+VERSION=0.1
 hp_health_version = "10.90"
 
 # ------------------------------------------------------------------------
@@ -55,6 +56,34 @@ def process_cli(args):
   parser = argparse.ArgumentParser(
      description="HP Firmware Upgrade Utility v{}".format(VERSION))
 
+  parser.add_argument(
+    "--flash", "-f", action='store_true', default=False,
+    help="update the indicated firmware systems"
+  )
+
+  parser.add_argument(
+    "--install", "-i", action='store_true', default=False,
+    help="install required packages for status queries"
+  )
+
+  parser.add_argument(
+    "--report", "-r", action='store_true', default=False,
+    help="generate a JSON formatted report of the current firmware versions"
+  )
+
+  #
+  subsys_selector=parser.add_mutually_exclusive_group()
+  subsys_selector.add_argument(
+    "--all", "-a", action='store_const', dest='subsystems', const=['ilo', 'sys', 'nic', 'inic', 'raid'],
+    help="update all subsystems"
+  )
+  
+  subsys_selector.add_argument(
+    "--subsystem", "-s", action='append', type=str, nargs='*', dest="subsystems",
+    choices=['ilo', 'sys', 'nic', 'inic', 'raid'],
+    help="The set of firmware subsystems to query or update"
+  )
+  
   
   opts = parser.parse_args(args)
 

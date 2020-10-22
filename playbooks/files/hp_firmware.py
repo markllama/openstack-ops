@@ -40,8 +40,20 @@ hp_health_version = "10.90"
 # CLI Argument Processing
 # ------------------------------------------------------------------------
 #
+# -f --flash - execute changes
+#    default: false
+# -i --install - install missing utilities and run check
+#    default: false
+# -r --report - generate a report of current state
+#    default: true
+# -s --subsystems - ILO, SYS, NIC, INIC, RAID  (SYS == BIOS, INIC = Intel 10GB)
+#    default: all
+# -m --meltdown - install special BIOS firmware to mitigate spectre/meltdown CVE
+#                 https://nvd.nist.gov/vuln/detail/CVE-2017-5754
+
 def process_cli(args):
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser(
+     description="HP Firmware Upgrade Utility v{}".format(VERSION))
 
   
   opts = parser.parse_args(args)

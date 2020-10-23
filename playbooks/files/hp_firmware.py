@@ -138,9 +138,12 @@ def system_product_name():
   Retrieve the system-product-name from DMI and return a string
   """
   cmd = "/usr/bin/env dmidecode -s system-product-name"
-  p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE)
+  p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   (response, stdErr) = p.communicate()
-  return response.strip().decode(encoding='UTF-8')
+  if p.returncode != 0:
+    response = "Family Model Generation"
+
+  return str(response.strip().decode(encoding='UTF-8'))
 
 def hp_model():
   """
@@ -153,6 +156,7 @@ def hp_model():
     'model': prod_fields[1],
     'generation': prod_fields[2]
   }
+  return prod_spec
 
 # ------------------------------------------------------------------------
 # NIC discovery functions
@@ -391,9 +395,6 @@ if __name__ == "__main__":
     logging.warning("firmware data file missing: {}".format(opts.firmware_data))
     pass
 
-  hw_gen = hp_model()['generation'].tolower() if opts.hw_gen == None else opts.hw_gen
-  logging.info("HP HW gen: {}".format(hw_gen))
-
   # check OS
   if is_redhat():
     package_status = package_versions(redhat_packages)
@@ -403,11 +404,13 @@ if __name__ == "__main__":
     # install required packages
 
     # create or update hp-spp repo
-    
-    
-    logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
-    if not opts.debug:
+
+    if opts.install:
+      logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
       update_packages(missing_packages)
+    
+  hw_gen = hp_model()['generation'].lower() if opts.hw_gen == None else opts.hw_gen
+  logging.info("HP HW gen: {}".format(hw_gen))
 
   # survey firmware(s) version(s)
 

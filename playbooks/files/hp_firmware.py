@@ -37,10 +37,26 @@ import sys
 VERSION=0.1
 hp_health_version = "10.90"
 
+defaults = {
+  "config_file": "./firmware_data.json"
+}
+
+redhat_packages = [
+    "dmidecode",
+    "ethtool",
+    "ssacli",
+    "hponcfg",
+    "pciutils",
+    "lshw",
+    "ipmitool"
+]
+
 # ------------------------------------------------------------------------
 # CLI Argument Processing
 # ------------------------------------------------------------------------
 #
+# -D --firmware-data - A JSON file containing the firmware definitions for updates
+#    default: ./firmware_data.json
 # -f --flash - execute changes
 #    default: false
 # -i --install - install missing utilities and run check
@@ -56,6 +72,11 @@ def process_cli(args):
   parser = argparse.ArgumentParser(
      description="HP Firmware Upgrade Utility v{}".format(VERSION))
 
+  parser.add_argument(
+    "--firmware-data", "-D", default=defaults['config_file'],
+    help="The location of a JSON file containing firmware data"
+  )
+  
   parser.add_argument(
     "--flash", "-f", action='store_true', default=False,
     help="update the indicated firmware systems"
@@ -88,6 +109,20 @@ def process_cli(args):
   opts = parser.parse_args(args)
 
   return opts
+
+# ------------------------------------------------------------------------
+# System Probe Commands
+# ------------------------------------------------------------------------
+#
+def system_product_name():
+  """
+  Retrieve the system-product-name from DMI and return a string
+  """
+  cmd = "/usr/bin/env dmidecode -s system-product-name"
+  p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE)
+  (response, stdErr) = p.communicate()
+  return response.strip().decode(encoding='UTF-8')
+
 
 
 # ------------------------------------------------------------------------
@@ -142,7 +177,24 @@ def is_redhat():
   # The first ele
   return "Red Hat Enterprise Linux Server" == platform.linux_distribution()[0]
 
+def package_versions(pkg_list):
+  """
+  Get the version of each package in the list
+  If the package is not installed, None
+  """
+  pkg_status = {}
+  
+  cmd = "rpm -q --qf %{{VERSION}} {}"
+  for pkg_name in pkg_list:
+    p = subprocess.Popen(cmd.format(pkg_name).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (version, dummy) = p.communicate()
 
+    # Save the version in a map. None indicates a missing package
+    pkg_status[pkg_name] = version.strip().decode('UTF-8') if p.returncode == 0 else None
+
+  return pkg_status
+
+  
 """
 These are the patterns for the upstream repo URL and for the Rackspace mirror
 """
@@ -227,6 +279,13 @@ def cmp_version_string(vs0, vs1):
   # The version strings are the same
   return 0
 
+def check_redhat_dependencies():
+  pass
+
+def update_redhat_dependencies():
+  pass
+
+
 # ------------------------------------------------------------------------
 # Data Load/Access function
 # ------------------------------------------------------------------------
@@ -285,6 +344,7 @@ def install_firmware_cpio():
 if __name__ == "__main__":
   opts = process_cli(sys.argv[1:])
 
+  
   #nics = get_broadcom_nics()
   #firmware_specs = load_firmware_data("firmware_list.json")
 

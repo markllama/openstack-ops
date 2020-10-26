@@ -39,17 +39,21 @@ VERSION=0.1
 hp_health_version = "10.90"
 
 defaults = {
-  "config_file": "./firmware_data.json"
+  "data_file": "./firmware_data.json",
+  "yum_repo_file": "/etc/yum.repos.d/hp-spp.plan"
 }
 
 redhat_packages = [
     "dmidecode",
     "ethtool",
-    "ssacli",
-    "hponcfg",
     "pciutils",
     "lshw",
     "ipmitool"
+]
+
+hp_packages = [
+    "ssacli",
+    "hponcfg"
 ]
 
 # ------------------------------------------------------------------------
@@ -62,15 +66,18 @@ redhat_packages = [
 #    default: false
 # -i --install - install missing utilities and run check
 #    default: false
+# -r --yum-repo-file - where to install the yum repo file for HP packages
+#
 # -r --report - generate a report of current state
 #    default: true
 # -s --subsystems - ILO, SYS, NIC, INIC, RAID  (SYS == BIOS, INIC = Intel 10GB)
 #    default: all
 # -m --meltdown - install special BIOS firmware to mitigate spectre/meltdown CVE
 #                 https://nvd.nist.gov/vuln/detail/CVE-2017-5754
-# -g --hw-gen - Hardware Generation gen8, gen9, gen10 - overrides dmidecode response
+# -M
+# -G --hw-gen - Hardware Generation gen8, gen9, gen10 - overrides dmidecode response
 #
-# -b --fw-build - Firmware build - a string that is usually YYYY.MM.S where S is a serial number starting with 0 in the month
+# -B --fw-build - Firmware build - a string that is usually YYYY.MM.S where S is a serial number starting with 0 in the month
 
 def process_cli(args):
   parser = argparse.ArgumentParser(
@@ -82,17 +89,17 @@ def process_cli(args):
   )
 
   parser.add_argument(
-    "--hw-gen", "-g", required=False, choices=['gen8', 'gen9', 'gen10'],
-    help="Specify the HP hardware generation string. Used in the HP tools YUM repo baseurl. Override the dmidecode response"
+    "--product-name", "-p", 
+    help="Specify the HP product string. Override the dmidecode response"
   )
 
   parser.add_argument(
-    "--fw-build", "-b", required=False,
+    "--fw-build", "-B", required=False,
     help="The build string to use for the HP tools YUM repo baseurl. Overrides the values from the firmware-data" 
   )
 
   parser.add_argument(
-    "--firmware-data", "-D", default=defaults['config_file'],
+    "--firmware-data", "-D", default=defaults['data_file'],
     help="The location of a JSON file containing firmware data"
   )
   
@@ -104,6 +111,11 @@ def process_cli(args):
   parser.add_argument(
     "--install", "-i", action='store_true', default=False,
     help="install required packages for status queries"
+  )
+
+  parser.add_argument(
+    "--yum-repo-file", "-y", default=defaults['yum_repo_file'],
+    help="the location of the HP SPP yum repository file"
   )
 
   parser.add_argument(
@@ -152,9 +164,9 @@ def hp_model():
   prod_string = system_product_name()
   prod_fields = prod_string.split()
   prod_spec = {
-    'family': prod_fields[0],
-    'model': prod_fields[1],
-    'generation': prod_fields[2]
+    'family': str(prod_fields[0]).lower(),
+    'model': str(prod_fields[1]).lower(),
+    'generation': str(prod_fields[2]).lower()
   }
   return prod_spec
 
@@ -315,14 +327,19 @@ def update_redhat_packages(packages=[]):
   Install or update a set of packages provided.
   """
 
-  cmd_template = "yum -y update {}"
+  cmd_template = "/bin/env yum -y install {}"
   cmd_string = cmd_template.format(" ".join(packages))
-  logger.debug("yum update command: {}".format(cmd_string))
-  yum_cmd = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  logging.debug("yum update command: {}".format(cmd_string))
+  
+  yum_cmd = subprocess.Popen(cmd_string.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   (yum_out, yum_err) = yum_cmd.communicate()
-  if yum_cmd.returncode != 0:
-    logger.error("error updating packages: {}".format(yum_error))
 
+  logging.debug("yum output: \n{}".format(yum_out))
+  if yum_cmd.returncode != 0:
+    logging.error("error updating packages: {}".format(yum_err))
+
+  # TODO - return the list of updated packages?
+  # TODO - respond to error with an exception?
 
 # ------------------------------------------------------------------------
 # Data Load/Access function
@@ -395,20 +412,39 @@ if __name__ == "__main__":
     logging.warning("firmware data file missing: {}".format(opts.firmware_data))
     pass
 
+  # Determine the HP hardware model and generation
+  #hw_spec = hp_model()['generation'].lower() if opts.hw_gen == None else opts.hw_gen
+  #logging.info("HP HW gen: {}".format(hw_gen))
+
   # check OS
   if is_redhat():
     package_status = package_versions(redhat_packages)
     logging.debug("package status = {}".format(package_status))
 
     missing_packages = [ p for p in package_status.keys() if package_status[p] == None]
+
     # install required packages
-
-    # create or update hp-spp repo
-
     if opts.install:
       logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
-      update_packages(missing_packages)
+      update_redhat_packages(missing_packages)
+
+    # add/update the hp-spp yum repo
+    if opts.install:
+      yum_fd = open(opts.yum_repo_file, "w+")
+      write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=yum_fd)
+      yum_fd.close()
     
+    package_status = package_versions(hp_packages)
+    logging.debug("package status = {}".format(package_status))
+
+    missing_packages = [ p for p in package_status.keys() if package_status[p] == None]
+
+    # install required packages
+    if opts.install:
+      logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
+      update_redhat_packages(missing_packages)
+
+
   hw_gen = hp_model()['generation'].lower() if opts.hw_gen == None else opts.hw_gen
   logging.info("HP HW gen: {}".format(hw_gen))
 

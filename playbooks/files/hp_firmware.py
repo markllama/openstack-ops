@@ -30,6 +30,7 @@ import platform
 import re
 import subprocess
 import sys
+import yaml
 
 # ------------------------------------------------------------------------
 # Constants
@@ -52,8 +53,9 @@ redhat_packages = [
 ]
 
 hp_packages = [
-    "ssacli",
-    "hponcfg"
+  "hponcfg",
+  "hp-health",
+  "ssacli"
 ]
 
 # ------------------------------------------------------------------------
@@ -150,26 +152,37 @@ def system_product_name():
   Retrieve the system-product-name from DMI and return a string
   """
   cmd = "/usr/bin/env dmidecode -s system-product-name"
-  p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  p = subprocess.Popen(cmd.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
   (response, stdErr) = p.communicate()
   if p.returncode != 0:
     response = "Family Model Generation"
 
   return str(response.strip().decode(encoding='UTF-8'))
-
-def hp_model():
+def get_nic_firmware_version(nic_name):
   """
-  Pull the system product name from BIOS and extract the HP model information
+  Get the firmware version of a Broadcom nic (or other with ethtool)
   """
-  prod_string = system_product_name()
-  prod_fields = prod_string.split()
-  prod_spec = {
-    'family': str(prod_fields[0]).lower(),
-    'model': str(prod_fields[1]).lower(),
-    'generation': str(prod_fields[2]).lower()
-  }
-  return prod_spec
 
+  cmd_template = "ethtool -i {}"
+  cmd_string = cmd_template.format(nic_name)
+  p = subprocess.Popen(cmd_string.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+
+  (response, stdout) = p.communicate()
+
+  output_pattern = "^([^\s]+):(\s+(.*))?$"
+  output_re = re.compile(output_pattern)
+  nic_data = {}
+  for line in response.split("\n"):
+    m = output_re.match(str(line.strip()))
+    if m:
+      nic_data[m.group(1)] = m.group(3)
+
+  return nic_data['firmware-version']
+  
 # ------------------------------------------------------------------------
 # NIC discovery functions
 # ------------------------------------------------------------------------
@@ -182,34 +195,161 @@ def get_nic_devices():
   nics = [ os.path.basename(n) for n in os.listdir('/sys/class/net') ]
 
   # Select the nic patterns that are of interest - no VLANs
-  nic_pattern = re.compile("^(eth|em|eno)[0-9]+$")
+  nic_pattern = re.compile("^(eth|em|eno|ens[0-9]f)[0-9]+$")
   nics = [ n for n in nics if nic_pattern.match(n) ]
   return nics
 
-def nic_is_broadcom(nic_name):
+def get_nic_driver(nic_name):
   """
-  Return true if the given nic is a Broadcom device (uses tg3 driver)
-  Search for a line containing "DRIVER=tg3"
+  Return the driver module used by a giving nic device
   """
-  is_broadcom = False
+  driver = None
 
   dev_file = open("/sys/class/net/{}/device/uevent".format(nic_name),"r")
-
   # Only change the value if you find it
   for line in dev_file:
-    if "DRIVER=tg3" in line:
-      is_broadcom = True
+    if "DRIVER=" in line:
+      driver = line.strip().split('=')[1]
       break
-
   dev_file.close()
 
-  return is_broadcom
+  return driver
 
-def get_broadcom_nics():
+def get_system_firmware_version():
   """
-  Return a list of broadcom nic devices
+  Get the version of the installed system firmware on HP systems
   """
-  return [ d for d in get_nic_devices() if nic_is_broadcom(d) ]
+
+  # One of the args is a space separated command string, so you can't split()
+  # it
+  cmd = ['hpasmcli', '-s',  'show server']
+  p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  (response, stdout) = p.communicate()
+
+  rom_version = None
+  for line in response.split('\n'):
+    if line.startswith("ROM version"):
+      rom_version = line.split(':')[1].strip()
+      break;
+
+  return rom_version
+
+def get_ilo_firmware_version():
+  """
+  Get the firmware version of the installed ILO on an HP server
+  """
+  
+  cmd_string = "hponcfg -h"
+  p = subprocess.Popen(cmd_string.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+  (response, stderr) = p.communicate()
+
+  firmware_re = re.compile("^Firmware Revision = (\d+\.\d+) ")
+
+  ilo_version = None
+  for line in response.split('\n'):
+    match = firmware_re.match(line)
+    if match:
+      ilo_version = match.groups()[0]
+      break
+
+  return ilo_version
+
+def get_nic_hardware():
+  """
+  TBD
+  """
+  list_nets_cmd_str = "lshw -c network -json"
+
+  p = subprocess.Popen(list_nets_cmd_str.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+  (response, stdout) = p.communicate()
+
+  # lshw JSON output needs some massaging before loading
+  # The output from lshw in json has a problem with separating nodes
+  # If you find two objects without a separator, add it.
+  data = re.sub('}\s+{', "},{", response)
+  # the data is a list of objects
+  networks = json.loads("[\n" + data + "\n]", object_hook=_decode_dict)
+
+  return networks
+
+def nic_is_intel_10gbe(network_data):
+  """
+  TBD
+  """
+
+  product_string = "Ethernet Controller 10-Gigabit X540-AT2"
+  vendor_string = "Intel Corporation"
+
+  try:
+    return network_data['product'] == product_string \
+      and network_data['vendor'] == vendor_string \
+      and 'logicalname' in network_data.keys()
+  except:
+    return False
+
+
+def pci_slot(network_data):
+  """
+  TBD
+  """
+  pci_slot_pattern = "^pci@[0-9a-zA-Z]{4}:([0-9a-zA-Z]{2}:[0-9a-zA-Z]{2}\.\d)"
+  pci_slot_re = re.compile(pci_slot_pattern)
+
+  match = pci_slot_re.match(network_data['businfo'])
+  
+  return str(match.groups()[0])
+
+def hp_nic_model_number(model_string):
+  """
+  TBD
+  """
+  # This is an odd looking pattern:
+  #   It matches a set of HP model numbers
+  #     
+  model_pattern = '[3,5][6][0-9][A-Z,i]{1,3}-?[A-Z]{0,5}\+?'
+
+  match = re.search(model_pattern, model_string)
+
+  return None if match == None else match.group(0)
+  
+def pci_device_subsystem(slot):
+  """
+  TBD
+  """
+  lspci_cmd_str = "lspci -v -s {}"
+
+  p = subprocess.Popen(lspci_cmd_str.format(slot).split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+  (response, stderr) = p.communicate()
+
+  for line in response.split("\n"):
+    if "Subsystem:" in line:
+      return line.split(":")[1].strip()
+
+  return None
+
+def get_raid_firmware_version():
+  """
+  TBD
+  """
+  cmd_string = "ssacli controller all show config detail"
+  p = subprocess.Popen(cmd_string.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+  (response, stdout) = p.communicate()
+
+  rom_version = None
+  for line in response.split("\n"):
+    if "Firmware Version" in line:
+      rom_version = line.split(':')[1].strip()
+      break
+
+  return rom_version
 
 # ------------------------------------------------------------------------
 # Red Hat Functions
@@ -341,6 +481,39 @@ def update_redhat_packages(packages=[]):
   # TODO - return the list of updated packages?
   # TODO - respond to error with an exception?
 
+
+def check_redhat_prerequisites(install=False):
+  """
+  Install or update prerequisite packages on a Red Hat (RPM) based system.
+  
+  """
+
+  package_status = package_versions(redhat_packages)
+  logging.debug("package status = {}".format(package_status))
+
+  missing_rhel_packages = [ p for p in package_status.keys() if package_status[p] == None]
+
+  # install required packages
+  if install:
+    logging.info("installing missing rhel packages: {}".format(", ".join(missing_rhel_packages)))
+    update_redhat_packages(missing_rhel_packages)
+
+  # add/update the hp-spp yum repo
+  if install:
+    yum_fd = open(opts.yum_repo_file, "w+")
+    write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=yum_fd)
+    yum_fd.close()
+    
+  package_status = package_versions(hp_packages)
+  logging.debug("package status = {}".format(package_status))
+
+  missing_hp_packages = [ p for p in package_status.keys() if package_status[p] == None]
+
+  # install required packages
+  if install:
+    logging.info("installing missing hp packages: {}".format(", ".join(missing_hp_packages)))
+    update_redhat_packages(missing_hp_packages)
+
 # ------------------------------------------------------------------------
 # Data Load/Access function
 # ------------------------------------------------------------------------
@@ -369,7 +542,7 @@ def _decode_dict(data):
     if isinstance(key, unicode):
       key = key.encode('utf-8')
     if isinstance(value, unicode):
-      value = value.encode('utf-8')
+      value = value.decode('utf-8')
     elif isinstance(value, list):
       value = _decode_list(value)
     elif isinstance(value, dict):
@@ -394,6 +567,34 @@ def install_firmware_cpio():
   pass
 
 # ========================================================================
+# Reporting Functions
+# ========================================================================
+#
+# These take a dict of the form:
+#   {
+#     'rom': <version>,
+#     'ilom': <version>,
+#     'raid': <version>,
+#     'nic': <version>,
+#     'inic': <version>
+#   }
+# current contains the detected values and available contains
+# the update value available
+
+def report_text(current, available):
+  """
+  Report the current and avialable firmware values in human readable text
+  """
+  pass
+
+def report_json(current, available):
+  """
+  Report the current and avialable firmware values in human readable text
+  """
+  pass
+
+
+# ========================================================================
 # MAIN
 # ========================================================================
 if __name__ == "__main__":
@@ -404,56 +605,60 @@ if __name__ == "__main__":
   else:
      logging.basicConfig(level=logging.WARNING)
 
+  logging.info("updating firmware on subsystems: {}".format(opts.subsystems))
+  
   # Read the update spec 
   if os.path.isfile(opts.firmware_data):
     logging.info("loading firmware data from {}".format(opts.firmware_data))
-    firmware_data = json.load(open(opts.firmware_data))
+    firmware_data = load_firmware_data(opts.firmware_data)
   else:
     logging.warning("firmware data file missing: {}".format(opts.firmware_data))
     pass
 
-  # Determine the HP hardware model and generation
-  #hw_spec = hp_model()['generation'].lower() if opts.hw_gen == None else opts.hw_gen
-  #logging.info("HP HW gen: {}".format(hw_gen))
+  logging.info("known systems: {}".format(firmware_data.keys()))
 
   # check OS
   if is_redhat():
-    package_status = package_versions(redhat_packages)
-    logging.debug("package status = {}".format(package_status))
+    check_redhat_prerequisites(opts.install)
 
-    missing_packages = [ p for p in package_status.keys() if package_status[p] == None]
+  # Check the dmidecode output to determine which hardware we're on
+  product_string = system_product_name()
+  logging.info("Product String: {}".format(product_string))
 
-    # install required packages
-    if opts.install:
-      logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
-      update_redhat_packages(missing_packages)
-
-    # add/update the hp-spp yum repo
-    if opts.install:
-      yum_fd = open(opts.yum_repo_file, "w+")
-      write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=yum_fd)
-      yum_fd.close()
-    
-    package_status = package_versions(hp_packages)
-    logging.debug("package status = {}".format(package_status))
-
-    missing_packages = [ p for p in package_status.keys() if package_status[p] == None]
-
-    # install required packages
-    if opts.install:
-      logging.info("installing missing packages: {}".format(", ".join(missing_packages)))
-      update_redhat_packages(missing_packages)
-
-
-  hw_gen = hp_model()['generation'].lower() if opts.hw_gen == None else opts.hw_gen
-  logging.info("HP HW gen: {}".format(hw_gen))
-
+  if not product_string in firmware_data.keys():
+    logging.error("no matching hardware profile for {}".format(product_string))
+    sys.exit(2)
+  
   # survey firmware(s) version(s)
+  # get_broadcom_nic_firmware_version()
+  # get_intel_nic_firmware_version()
+  # get_bios_firmware_version()  # get_ilo_firmware_version()
+  # get_raid_firmware_version()
+
+  system_rom_version = get_system_firmware_version()
+  ilo_version = get_ilo_firmware_version()
+  raid_version = get_raid_firmware_version()
+
+  # find 
+  nics = get_nic_devices()
+  broadcom_nics = [ n for n in nics if "tg3" == get_nic_driver(n)]
+
+# ONE WAY TO GET INTEL NICS - but doesn't get model number
+#  intel_nics = [ n for n in nics if "ixgbe" == get_nic_driver(n) ]
+#  logging.info("intel nics found: {}".format(intel_nics))
+
+  # this is a list of dicts, one per nic
+  intel_nics = [ n for n in get_nic_hardware() if nic_is_intel_10gbe(n) ]
+
+  broadcom_nic_version = get_nic_firmware_version(broadcom_nics[0])
+  # for intel nics you need to break them down by model number
+  # [ {'name': str, 'model': str, 'version': str} ]
+  # add the model string 
+  for nic in intel_nics:
+    nic['model'] = hp_nic_model_number(pci_device_subsystem(pci_slot(nic)))
+    nic['firmware-version'] = get_nic_firmware_version(nic['logicalname'])
 
   
-  #nics = get_broadcom_nics()
-  #firmware_specs = load_firmware_data("firmware_list.json")
-
   # create/update hp-spp yum repo file
 
   # update utility packages (if necessary)

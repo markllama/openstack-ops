@@ -292,17 +292,6 @@ def nic_is_intel_10gbe(network_data):
     return False
 
 
-def pci_slot(network_data):
-  """
-  TBD
-  """
-  pci_slot_pattern = "^pci@[0-9a-zA-Z]{4}:([0-9a-zA-Z]{2}:[0-9a-zA-Z]{2}\.\d)"
-  pci_slot_re = re.compile(pci_slot_pattern)
-
-  match = pci_slot_re.match(network_data['businfo'])
-  
-  return str(match.groups()[0])
-
 def hp_nic_model_number(model_string):
   """
   TBD
@@ -315,6 +304,18 @@ def hp_nic_model_number(model_string):
   match = re.search(model_pattern, model_string)
 
   return None if match == None else match.group(0)
+
+def pci_slot(network_data):
+  """
+  TBD
+  """
+  pci_slot_pattern = "^pci@[0-9a-zA-Z]{4}:([0-9a-zA-Z]{2}:[0-9a-zA-Z]{2}\.\d)"
+  pci_slot_re = re.compile(pci_slot_pattern)
+
+  match = pci_slot_re.match(network_data['businfo'])
+  
+  return str(match.groups()[0])
+
   
 def pci_device_subsystem(slot):
   """
@@ -350,6 +351,32 @@ def get_raid_firmware_version():
       break
 
   return rom_version
+
+def get_intel_nic_firmware_versions(intel_nics):
+  # for intel nics you need to break them down by model number
+  # [ {'name': str, 'model': str, 'version': str} ]
+  # add the model string
+  for nic in intel_nics:
+    nic['model'] = hp_nic_model_number(pci_device_subsystem(pci_slot(nic)))
+    nic['firmware-version'] = get_nic_firmware_version(nic['logicalname'])
+
+  # using list(set()) you can filter duplicate strings
+  intel_models = list(set([ n['model'] for n in intel_nics]))
+
+  # You can use set(list()) on strings and split them later.
+  intel_mv_strings = list(set([ ':'.join([n['model'], n['firmware-version'] ]) for n in intel_nics]))
+
+  # Collect the models and their current versions
+  intel_model_versions = []
+  for mv in intel_mv_strings:
+    (model, version) = mv.split(':')
+    intel_model_versions.append({'model': model, 'version': version })
+
+  # add the list of nics that match
+  for mv in intel_model_versions:
+    mv['devices'] = [ n['logicalname'] for n in intel_nics if n['model'] == mv['model'] ]
+
+  return intel_model_versions
 
 # ------------------------------------------------------------------------
 # Red Hat Functions
@@ -581,6 +608,49 @@ def install_firmware_cpio():
 # current contains the detected values and available contains
 # the update value available
 
+# Report contains:
+#  RAX server number 
+
+def server_number():
+  """
+  Attempt to determine the Rackspace server number from the hostname
+  """
+  # find six (or 7?) numbers or '-'
+  try:
+    server_number = re.findall('\d{6}(?=-)', os.uname()[1])[0]
+  except:
+    server_number = "undefined"
+
+  return server_number
+
+def survey_host_firmware():
+  """
+  TBD
+  """
+  system_rom_version = get_system_firmware_version()
+  ilo_version = get_ilo_firmware_version()
+  raid_version = get_raid_firmware_version()
+  nics = get_nic_devices()
+  broadcom_nics = [ n for n in nics if "tg3" == get_nic_driver(n)]
+  broadcom_nic_version = get_nic_firmware_version(broadcom_nics[0])
+
+  # this is a list of dicts, one per nic
+  intel_nics = [ n for n in get_nic_hardware() if nic_is_intel_10gbe(n) ]
+  intel_nic_versions = get_intel_nic_firmware_versions(intel_nics)
+     
+  current = {
+    'system': system_rom_version,
+    'ilo': ilo_version,
+    'raid': raid_version,
+    'nics': {
+      'broadcom': broadcom_nic_version,
+      'intel': intel_nic_versions
+    }
+  }
+
+  return current
+
+
 def report_text(current, available):
   """
   Report the current and avialable firmware values in human readable text
@@ -591,7 +661,11 @@ def report_json(current, available):
   """
   Report the current and avialable firmware values in human readable text
   """
-  pass
+  report = {
+    'core_id': server_number(),
+    'current': current
+  }
+  print(json.dumps(report, indent=2))
 
 
 # ========================================================================
@@ -628,37 +702,12 @@ if __name__ == "__main__":
   if not product_string in firmware_data.keys():
     logging.error("no matching hardware profile for {}".format(product_string))
     sys.exit(2)
+
+  current = survey_host_firmware()
   
-  # survey firmware(s) version(s)
-  # get_broadcom_nic_firmware_version()
-  # get_intel_nic_firmware_version()
-  # get_bios_firmware_version()  # get_ilo_firmware_version()
-  # get_raid_firmware_version()
-
-  system_rom_version = get_system_firmware_version()
-  ilo_version = get_ilo_firmware_version()
-  raid_version = get_raid_firmware_version()
-
-  # find 
-  nics = get_nic_devices()
-  broadcom_nics = [ n for n in nics if "tg3" == get_nic_driver(n)]
-
-# ONE WAY TO GET INTEL NICS - but doesn't get model number
-#  intel_nics = [ n for n in nics if "ixgbe" == get_nic_driver(n) ]
-#  logging.info("intel nics found: {}".format(intel_nics))
-
-  # this is a list of dicts, one per nic
-  intel_nics = [ n for n in get_nic_hardware() if nic_is_intel_10gbe(n) ]
-
-  broadcom_nic_version = get_nic_firmware_version(broadcom_nics[0])
-  # for intel nics you need to break them down by model number
-  # [ {'name': str, 'model': str, 'version': str} ]
-  # add the model string 
-  for nic in intel_nics:
-    nic['model'] = hp_nic_model_number(pci_device_subsystem(pci_slot(nic)))
-    nic['firmware-version'] = get_nic_firmware_version(nic['logicalname'])
-
-  
+  if opts.report:
+    report_json(current, None)
+    
   # create/update hp-spp yum repo file
 
   # update utility packages (if necessary)

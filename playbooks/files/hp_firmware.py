@@ -650,6 +650,26 @@ def survey_host_firmware():
 
   return current
 
+def available_firmware_versions(model_firmware_data, intel_nic_models=None):
+  """
+  Collect the firmware versions available for the hardware present
+  """
+
+  available = {
+    'system': model_firmware_data['SYSTEM']['ver'],
+    'ilo': model_firmware_data['ILO']['ver'],
+    'raid': model_firmware_data['RAID']['ver'],
+    'nics': {
+      'broadcom': model_firmware_data['NIC']['ver'],
+      'intel': []
+    }
+  }
+
+  if intel_nic_models != None:
+    intel_nic_versions = [ {'model': m, 'vers': model_firmware_data['INIC']['ver'][m]} for m in intel_nic_models]
+    available['nics']['intel'] = intel_nic_versions
+
+  return available
 
 def report_text(current, available):
   """
@@ -663,7 +683,8 @@ def report_json(current, available):
   """
   report = {
     'core_id': server_number(),
-    'current': current
+    'current': current,
+    'available': available
   }
   print(json.dumps(report, indent=2))
 
@@ -704,9 +725,12 @@ if __name__ == "__main__":
     sys.exit(2)
 
   current = survey_host_firmware()
+  intel_nic_models = [ m['model'] for m in current['nics']['intel'] ]
+  available = available_firmware_versions(firmware_data[product_string], intel_nic_models)
   
   if opts.report:
-    report_json(current, None)
+    report_json(current, available)
+    sys.exit(0)
     
   # create/update hp-spp yum repo file
 

@@ -225,6 +225,7 @@ def get_system_firmware_version():
   cmd = ['hpasmcli', '-s',  'show server']
   p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   (response, stdout) = p.communicate()
+  # TODO - check cmd return code
 
   rom_version = None
   for line in response.split('\n'):
@@ -623,6 +624,57 @@ def server_number():
 
   return server_number
 
+
+class HostFirmware():
+  """
+  This class represents the firmware installed on an HP (and other?) host.
+  """
+
+  def __init__(self, data=None):
+    if data == None:
+      self._survey()
+    else:
+      self._load_data(data)
+
+  def _survey(self):
+    self.system = get_system_firmware_version()
+    self.ilom = get_ilo_firmware_version()
+    self.raid = get_raid_firmware_version()
+
+    self.nics = {}
+    nics = get_nic_devices()
+    broadcom_nics = [ n for n in nics if "tg3" == get_nic_driver(n)]
+    self.nics['broadcom'] = get_nic_firmware_version(broadcom_nics[0])
+    
+    # this is a list of dicts, one per nic
+    intel_nics = [ n for n in get_nic_hardware() if nic_is_intel_10gbe(n) ]
+    self.nics['intel'] = get_intel_nic_firmware_versions(intel_nics)
+     
+  def _load_data(self, data):
+    """
+    Load a firmware spec data structure into a HostFirmware objec
+    """
+    self.system = data['SYSTEM']['ver']
+    self.ilom = data['ILO']['ver']
+    self.raid = data['RAID']['ver']
+    self.nics = {
+      'broadcom': data['NIC']['ver'],
+      'intel': data['INIC']['ver']
+    }
+
+  def compare(self, other):
+    pass
+
+class HostFirmwareEncoder(json.JSONEncoder):
+  """
+  TBD
+  """
+  def default(self, o):
+    if isinstance(o, HostFirmware):
+      return o.__dict__
+
+    return None
+
 def survey_host_firmware():
   """
   TBD
@@ -671,6 +723,15 @@ def available_firmware_versions(model_firmware_data, intel_nic_models=None):
 
   return available
 
+def compare_firmware_versions(current, available):
+  """
+  Check of the "available" values match those pulled from the system.
+  Non-match indicates that an update is required
+  """
+
+  
+  pass
+
 def report_text(current, available):
   """
   Report the current and avialable firmware values in human readable text
@@ -681,12 +742,14 @@ def report_json(current, available):
   """
   Report the current and avialable firmware values in human readable text
   """
-  report = {
-    'core_id': server_number(),
-    'current': current,
-    'available': available
-  }
-  print(json.dumps(report, indent=2))
+  #report = {
+  #  'core_id': server_number(),
+  #  'current': current,
+  #  'available': available
+  #}
+  #print(json.dumps(report, indent=2))
+  print(json.dumps(current, indent=2, cls=HostFirmwareEncoder))
+  print(json.dumps(available, indent=2, cls=HostFirmwareEncoder))
 
 
 # ========================================================================
@@ -705,11 +768,14 @@ if __name__ == "__main__":
   # Read the update spec 
   if os.path.isfile(opts.firmware_data):
     logging.info("loading firmware data from {}".format(opts.firmware_data))
-    firmware_data = load_firmware_data(opts.firmware_data)
+    firmware_data_record = load_firmware_data(opts.firmware_data)
   else:
     logging.warning("firmware data file missing: {}".format(opts.firmware_data))
     pass
 
+  firmware_base_url = firmware_data_record['firmware_cache_url']
+  firmware_data = firmware_data_record['firmware_specs']
+  
   logging.info("known systems: {}".format(firmware_data.keys()))
 
   # check OS
@@ -724,14 +790,25 @@ if __name__ == "__main__":
     logging.error("no matching hardware profile for {}".format(product_string))
     sys.exit(2)
 
-  current = survey_host_firmware()
-  intel_nic_models = [ m['model'] for m in current['nics']['intel'] ]
-  available = available_firmware_versions(firmware_data[product_string], intel_nic_models)
+  print(firmware_data[product_string]['SYSTEM']['fwpkg'])
+
   
+  #current = survey_host_firmware()
+  current = HostFirmware()
+  #intel_nic_models = [ m['model'] for m in current['nics']['intel'] ]
+
+  
+  #available = available_firmware_versions(firmware_data[product_string], intel_nic_models)
+  available = HostFirmware(firmware_data[product_string])
+
+  print("available.system[{}]: {}".format(type(available.system), available.system))
   if opts.report:
+    #print(current)
+    #print(available)
     report_json(current, available)
     sys.exit(0)
-    
+
+  
   # create/update hp-spp yum repo file
 
   # update utility packages (if necessary)

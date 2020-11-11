@@ -1,0 +1,135 @@
+---
+firmware_cache_url:  "http://d490e1c1b2bc716e2eaf-63689fefdb0190e2db0220301cd1330e.r14.cf5.rackcdn.com/"
+systems:
+  - name: "ProLiant DL360 Gen9"
+    spp:
+      gen: gen9
+      version: "2019.12.0"
+    devices:
+      - name: bios
+        type: bios
+        version: "10/21/2019"
+        package:
+          name: "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
+          md5: "952e3b3244dd818084fbd09cc3f8c14e"
+
+      - name: ilom
+        type: ilom
+        version: "10/21/2019"
+        package:
+          name: "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
+          md5: "952e3b3244dd818084fbd09cc3f8c14e"
+
+      - name: raid
+        type: raid
+        version: "7.00"
+        package:
+          name: "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm"
+          md5: "84261221942a6dd6bd6898620f460f56"
+
+      - name: broadcom_nic
+        type: nic
+        driver: tg3
+        version: "5719-v1.46NCSIv1.5.12.0"
+        package:
+          name: "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm"
+          md5: "c0d1d2a1199e59c020b54aee844e2fb4"
+
+      - name: intel_nic
+        type: nic
+        driver: ixgbe
+        versions:
+          - model: "560FLB"
+            version: "800008F0"
+          - model: "560FLR-SFP+"
+            version: "80000838"
+          - model: "560SFP+"
+            version: "80000835"
+          - model: "560M"
+            version: "8000083D"
+          - model: "561FLR-T"
+            version: "800005B6"
+          - model: "561T"
+            version: "80000636"
+          - model: "562i"
+            version: "800006FC"
+          - model: "562FLR-SFP+"
+            versions: "800038C9"
+          - model: "562SFP+"
+            versions: "800038C8"
+          - model: "563i"
+            version: "800035C0"
+        package:
+          name: "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm"
+          md5: "c2af9badd28debbee468486ecac9fc4e"
+
+systems:
+  - name: "ProLiant DL380 Gen9"
+    spp:
+      gen: gen9
+      version: "2019.12.0"
+    devices:
+      - name: bios
+        type: bios
+        version: "02/17/2017"
+        package:
+          name: "hp-firmware-system-p89-2.40_2017_02_17-2.1.i386.rpm"
+          md5: "4506ed3576c05989070fbe75bb58d65e"
+
+      - name: meltdown
+        type: bios
+        version: "10/21/2019"
+        package:
+          name: "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
+          md5: "952e3b3244dd818084fbd09cc3f8c14e"
+
+      - name: ilom
+        type: ilom
+        version: "10/21/2019"
+        package:
+          name: "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
+          md5: "952e3b3244dd818084fbd09cc3f8c14e"
+
+      - name: raid
+        type: raid
+        version: "7.00"
+        package:
+          name: "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm"
+          md5: "84261221942a6dd6bd6898620f460f56"
+
+      - name: broadcom_nic
+        type: nic
+        driver: tg3
+        version: "5719-v1.46NCSIv1.5.12.0"
+        package:
+          name: "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm"
+          md5: "c0d1d2a1199e59c020b54aee844e2fb4"
+
+      - name: intel_nic
+        type: nic
+        driver: ixgbe
+        versions:
+          - model: "560FLB"
+            version: "800008F0"
+          - model: "560FLR-SFP+"
+            version: "80000838"
+          - model: "560SFP+"
+            version: "80000835"
+          - model: "560M"
+            version: "8000083D"
+          - model: "561FLR-T"
+            version: "800005B6"
+          - model: "561T"
+            version: "80000636"
+          - model: "562i"
+            version: "800006FC"
+          - model: "562FLR-SFP+"
+            versions: "800038C9"
+          - model: "562SFP+"
+            versions: "800038C8"
+          - model: "563i"
+            version: "800035C0"
+        package:
+          name: "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm"
+          md5: "c2af9badd28debbee468486ecac9fc4e"
+

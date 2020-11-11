@@ -8,8 +8,23 @@ import subprocess
 import types
 import urllib
 import urlparse
+import yaml
 
 base_url = "http://d490e1c1b2bc716e2eaf-63689fefdb0190e2db0220301cd1330e.r14.cf5.rackcdn.com/"
+
+def system_product_name():
+  """
+  Retrieve the system-product-name from DMI and return a string
+  """
+  cmd = "/usr/bin/env dmidecode -s system-product-name"
+  p = subprocess.Popen(cmd.split(),
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+  (response, stdErr) = p.communicate()
+  if p.returncode != 0:
+    response = "Family Model Generation"
+
+  return str(response.strip().decode(encoding='UTF-8'))
 
 # 
 # ILOM
@@ -19,8 +34,7 @@ base_url = "http://d490e1c1b2bc716e2eaf-63689fefdb0190e2db0220301cd1330e.r14.cf5
 #   broadcom (single)
 #   intel    (multiple)
 
-
-class Firmware(object):
+class Device(object):
   """
   Define data and operations for system firmware checking and update
   """
@@ -91,33 +105,33 @@ class Firmware(object):
     url = urlparse.urljoin(base_url, self.package_file)
     urllib.urlretrieve(url, filename=os.path.join(dest_dir, self.package_file))
       
-class IlomFirmware(Firmware):
+class IlomDevice(Device):
 
   _fw_type = "ilom"
   _check_pattern = "^Firmware Revision = (\d+\.\d+) "
   _check_cmd = "hponcfg -h".split()
   
   def __init__(self):
-    super(IlomFirmware, self).__init__()
+    super(IlomDevice, self).__init__()
   
 
-class BiosFirmware(Firmware):
+class BiosDevice(Device):
   _fw_type = "bios"
   _check_pattern = "ROM version\s*:\s(.*)$"
   _check_cmd =  ['hpasmcli', '-s',  'show server']
 
   def __init__(self):
-    super(BiosFirmware, self).__init__()
+    super(BiosDevice, self).__init__()
 
-class RaidFirmware(Firmware):
+class RaidDevice(Device):
   _fw_type = "raid"
   _check_pattern = "^\s*Firmware Version: (.*)$"
   _check_cmd = "ssacli controller all show config detail".split()
 
   def __init__(self):
-    super(RaidFirmware, self).__init__()
+    super(RaidDevice, self).__init__()
 
-class NicFirmware(Firmware):
+class NicDevice(Device):
   _fw_type = "nic"
   _check_pattern = "^firmware-version: (.*)$"
   _check_format = "ethtool -i {}"
@@ -126,7 +140,7 @@ class NicFirmware(Firmware):
     """
     Nic checks require a device
     """
-    super(NicFirmware, self).__init__()
+    super(NicDevice, self).__init__()
     self.data = data
     if device != None:
       self.device = device
@@ -279,9 +293,22 @@ def _decode_dict(data):
   
 
 def test():
+
+  sysgen = system_product_name()
+  print("System is: {}".format(sysgen))
   
-  print("Creating an Ilom Firmware")
-  ilom = IlomFirmware(
+  if os.path.exists("firmware.yaml"):
+    available = yaml.load(open("firmware.yaml"))
+  else:
+    available = None
+
+  # is this a known system type?
+  if sysgen not in [ p['name'] for p in available['systems']]:
+    print("Unrecognized system: {}".format(sysgen))
+    sys.exit(1)
+
+  print("Creating an Ilom Device")
+  ilom = IlomDevice(
     # hw_generation="gen9",
     # match_string="2.73"
   )
@@ -290,52 +317,36 @@ def test():
   ilom.package_file = "hp-firmware-ilo4-2.73-1.1.i386.rpm"
   ilom.package_md5 = "c436f2200c8341cdb4c44899954038bc"
 
-  print("ILOM Firmware Type = {}".format(ilom.fw_type))
+  print("ILOM Device Type = {}".format(ilom.fw_type))
   print("ILOM Current = {}".format(ilom.current))
   print("ILOM up to date: {}".format(ilom.uptodate))
 
-  print("Creating a BIOS Firmware")
-  bios = BiosFirmware()
+  print("Creating a BIOS Device")
+  bios = BiosDevice()
   bios.match_string = "10/21/2019"
   bios.package_file = "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
   bios.package_md5 = "952e3b3244dd818084fbd09cc3f8c14e"
   
-  print("BIOS Firmware Type = {}".format(bios.fw_type))
+  print("BIOS Device Type = {}".format(bios.fw_type))
   print("BIOS Current = {}".format(bios.current))
   print("BIOS up to date: {}".format(bios.uptodate))
 
-  print("Creating a RAID Firmware")
-  raid = RaidFirmware()
+  print("Creating a RAID Device")
+  raid = RaidDevice()
   raid.match_string = "7.00"
   raid.package_file = "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm"
   raid.package_md5 = "84261221942a6dd6bd6898620f460f56"
   
-  print("RAID Firmware Type = {}".format(raid.fw_type))
+  print("RAID Device Type = {}".format(raid.fw_type))
   print("RAID Current = {}".format(raid.current))
   print("RAID up to date: {}".format(raid.uptodate))
 
-  # print("Creating a NIC Firmware for eno1")
-  # nic_eno1 = NicFirmware("eno1")
-  # nic_eno1.match_string = "5719-v1.46 NCSI v1.5.12.0"
-  # nic_eno1.package_file = "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm"
-  # nic_eno1.package_md5 = "c0d1d2a1199e59c020b54aee844e2fb4"
-  # print("NIC {} Firmware Type = {}".format(nic_eno1.device, nic_eno1.fw_type))
-  # print("NIC {} Current = {}".format(nic_eno1.device, nic_eno1.current))
-  # print("NIC {} up to date: {}".format(nic_eno1.device, nic_eno1.uptodate))
 
-  # print("Creating a NIC Firmware for ens4f0")
-  # nic_ens4f0 = NicFirmware("ens4f0")
-  # nic_ens4f0.match_string = "0x80000636"
-  # nic_ens4f0.package_file = "hp-firmware-nic-intel-1.16.0-1.1.x86_64.rpm"
-  # nic_ens4f0.package_md5 = "c2af9badd28debbee468486ecac9fc4e"
-  # print("NIC {} Firmware Type = {}".format(nic_ens4f0.device, nic_ens4f0.fw_type))
-  # print("NIC {} Current = {}".format(nic_ens4f0.device, nic_ens4f0.current))
-  # print("NIC {} up to date: {}".format(nic_ens4f0.device, nic_ens4f0.uptodate))
-
-  hardware_nics = NicFirmware.get_nic_data(NicFirmware.get_nic_devices())
-  nics = [ NicFirmware(data=n) for n in hardware_nics ]
-  print("NIC Hardware = {}".format(json.dumps([ {"name": n.device, "current": n.current, "model": n.hp_model_number, "subsys": n.pci_device_subsystem} for n in nics], indent=2)))
+  hardware_nics = NicDevice.get_nic_data(NicDevice.get_nic_devices())
+  nics = [ NicDevice(data=n) for n in hardware_nics ]
+  #print("NIC Hardware = {}".format(json.dumps([ {"name": n.device, "current": n.current, "model": n.hp_model_number, "subsys": n.pci_device_subsystem} for n in nics], indent=2)))
 
 if __name__ == "__main__":
 
+  
   test()

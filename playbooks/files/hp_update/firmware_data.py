@@ -10,6 +10,9 @@ import urllib
 import urlparse
 import yaml
 
+#HPE download repo token for mark.lamourine@rackspace.com
+# token = "R3WfOnFgSPkhmL7Df0gT03gtLSZ9HX5euTuPj97O7JuEVmIdQN0Yl-sjYLN4V_BBVy0VTJAShJ6l-5ull6luvg"
+
 base_url = "http://d490e1c1b2bc716e2eaf-63689fefdb0190e2db0220301cd1330e.r14.cf5.rackcdn.com/"
 
 def system_product_name():
@@ -25,6 +28,50 @@ def system_product_name():
     response = "Family Model Generation"
 
   return str(response.strip().decode(encoding='UTF-8'))
+
+
+class Firmware(object):
+  """
+  This object represents firmware updates that are available.
+  It includes data to check against a system device to determine if an
+  update is in order and to retrieve and install the firmware.
+  """
+  def __init__(self,
+               name=None,
+               fw_type=None,
+               driver=None,
+               versions=[],
+               match_string=None,
+               package_name=None,
+               package_md5=None):
+
+    self.name = name
+    self.type = fw_type
+    self.versions = versions
+    self.package_name = package_name
+    self.package_md5 = package_md5
+
+  @staticmethod
+  def from_dict(structure):
+    """
+    """
+    keys = structure.keys()
+    f = Firmware()
+    f.name = structure['name'] if 'name' in keys else None
+    f.type = structure['type'] if 'type' in keys else None    
+    f.package_name = structure['package_name'] if 'package_name' in keys else None
+    f.package_md5 = structure['package_md5'] if 'package_md5' in keys else None
+    f.versions = structure['versions'] if 'versions' in keys else []
+    f.name = structure['name'] if 'name' in keys else None
+
+    return f
+
+  def fetch_package(self, dest_dir="/var/tmp", base_url=None):
+    """
+    Get the file, put it in the destination and confirm the checksum
+    """
+    url = urlparse.urljoin(base_url, self.package_file)
+    urllib.urlretrieve(url, filename=os.path.join(dest_dir, self.package_file))
 
 # 
 # ILOM
@@ -45,31 +92,25 @@ class Device(object):
   #_fw_type = None
   #_check_cmd = []
 
-  def __init__(self,
-               hw_generation=None,
-               match_string=None,
-               check_cmd=None,
-               check_pattern=None):
-
-    self.hw_generation = hw_generation
-
+  def __init__(self):
     self._current = None
     self.available = None
-    
-    self.package_file = None
-    self.package_checksum = None
-    self.repo_base_url = None
-
-  @property
-  def fw_type(self):
-    return self._fw_type
+    self.firmware = None
 
   @property
   def uptodate(self, actual=None, available=None):
     """
     TBD
     """
-    return self.match_string in self.current
+    if self.firmware == None:
+      return None
+
+    if len(self.firmware.versions) == 1:
+      match_string = self.firmware.versions[0]['match_string']
+    else:
+      return True
+
+    return match_string in self.current
 
   def get_current(self):
     p = subprocess.Popen(self._check_cmd,
@@ -98,13 +139,6 @@ class Device(object):
 
     return self._current
 
-  def fetch_package(self, dest_dir="/var/tmp", base_url=None):
-    """
-    Get the file, put it in the destination and confirm the checksum
-    """
-    url = urlparse.urljoin(base_url, self.package_file)
-    urllib.urlretrieve(url, filename=os.path.join(dest_dir, self.package_file))
-      
 class IlomDevice(Device):
 
   _fw_type = "ilom"
@@ -291,9 +325,7 @@ def _decode_dict(data):
     rv[key] = value
   return rv
   
-
-def test():
-
+def load_firmwares():
   sysgen = system_product_name()
   print("System is: {}".format(sysgen))
   
@@ -307,46 +339,49 @@ def test():
     print("Unrecognized system: {}".format(sysgen))
     sys.exit(1)
 
-  print("Creating an Ilom Device")
-  ilom = IlomDevice(
-    # hw_generation="gen9",
-    # match_string="2.73"
-  )
+  # This is not really efficient, but lists of things should be lists
+  fw_specs = [ s['devices'] for s in available['systems'] if s['name'] == sysgen ][0]
+  #print("There are {} firmware specs for {}\n\n{}".format(len(fw_specs), sysgen, fw_specs))
 
-  ilom.match_string = "2.72"
-  ilom.package_file = "hp-firmware-ilo4-2.73-1.1.i386.rpm"
-  ilom.package_md5 = "c436f2200c8341cdb4c44899954038bc"
+  firmwares = []
+  for s in fw_specs:
+    fw = Firmware.from_dict(s)
+    firmwares.append(fw)
 
-  print("ILOM Device Type = {}".format(ilom.fw_type))
-  print("ILOM Current = {}".format(ilom.current))
-  print("ILOM up to date: {}".format(ilom.uptodate))
+  return firmwares
+  
+  
 
-  print("Creating a BIOS Device")
+def load_devices():
+
+  ilom = IlomDevice()
   bios = BiosDevice()
-  bios.match_string = "10/21/2019"
-  bios.package_file = "hp-firmware-system-p89-2.76_2019_10_21-1.1.i386.rpm"
-  bios.package_md5 = "952e3b3244dd818084fbd09cc3f8c14e"
-  
-  print("BIOS Device Type = {}".format(bios.fw_type))
-  print("BIOS Current = {}".format(bios.current))
-  print("BIOS up to date: {}".format(bios.uptodate))
-
-  print("Creating a RAID Device")
   raid = RaidDevice()
-  raid.match_string = "7.00"
-  raid.package_file = "hp-firmware-smartarray-ea3138d8e8-7.00-1.1.x86_64.rpm"
-  raid.package_md5 = "84261221942a6dd6bd6898620f460f56"
-  
-  print("RAID Device Type = {}".format(raid.fw_type))
-  print("RAID Current = {}".format(raid.current))
-  print("RAID up to date: {}".format(raid.uptodate))
-
-
   hardware_nics = NicDevice.get_nic_data(NicDevice.get_nic_devices())
   nics = [ NicDevice(data=n) for n in hardware_nics ]
-  #print("NIC Hardware = {}".format(json.dumps([ {"name": n.device, "current": n.current, "model": n.hp_model_number, "subsys": n.pci_device_subsystem} for n in nics], indent=2)))
+
+  return {'ilom': ilom, 'bios': bios, 'raid': raid, 'nics': nics}
 
 if __name__ == "__main__":
 
+  devices = load_devices()
+  fw = load_firmwares()
+
+  # should only be one ilom firmware
+  ilom_fw = [ifw for ifw in fw if ifw.type == 'ilom'][0]
+  devices['ilom'].firmware = ilom_fw
+  print("Ilom uptodate = {}".format(devices['ilom'].uptodate))
   
-  test()
+  # find all the bios fw
+  bios_fw = [ bfw for bfw in fw if bfw.type == 'bios']
+  # just pick the first for now
+  devices['bios'].firmware = bios_fw[0]
+
+  # There should be only one raid_fw
+  raid_fw = [ rfw for rfw in fw if rfw.type == 'raid']
+
+  nic_fw_by_driver = {fw.driver: fw for fw in devices['nics']}
+  # match each nic device with a fw for the driver type
+  for nd in devices['nics']:
+    # find a fw that matches
+    nd.firmware = nic_fw_by_driver[nd.driver]

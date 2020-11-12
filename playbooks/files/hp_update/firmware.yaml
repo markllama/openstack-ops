@@ -38,7 +38,7 @@ systems:
       driver: tg3
       versions:
       - model: 
-        match_string: "5719-v1.46NCSIv1.5.12.0"
+        match_string: "5719-v1.46 NCSI v1.5.12.0"
       package:
         name: "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm"
         md5: "c0d1d2a1199e59c020b54aee844e2fb4"
@@ -118,7 +118,7 @@ systems:
       driver: tg3
       versions:
       - model: null
-        match_string: "5719-v1.46NCSIv1.5.12.0"
+        match_string: "5719-v1.46 NCSI v1.5.12.0"
       package:
         name: "hp-firmware-nic-broadcom-2.25.1-1.1.x86_64.rpm"
         md5: "c0d1d2a1199e59c020b54aee844e2fb4"

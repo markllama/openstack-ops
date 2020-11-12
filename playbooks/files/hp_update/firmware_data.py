@@ -1,13 +1,18 @@
 #!/bin/env python
 from __future__ import print_function
 
+import hashlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 import types
 import urllib
-import urlparse
+try:
+  import urlparse
+except:
+  import urllib.parse as urlparse
 import yaml
 
 #HPE download repo token for mark.lamourine@rackspace.com
@@ -36,17 +41,21 @@ class Firmware(object):
   It includes data to check against a system device to determine if an
   update is in order and to retrieve and install the firmware.
   """
+
+  base_url = None
+  tmp_dir = None
+
   def __init__(self,
                name=None,
                fw_type=None,
                driver=None,
                versions=[],
-               match_string=None,
                package_name=None,
                package_md5=None):
 
     self.name = name
     self.type = fw_type
+    self.driver = driver
     self.versions = versions
     self.package_name = package_name
     self.package_md5 = package_md5
@@ -54,26 +63,48 @@ class Firmware(object):
   @staticmethod
   def from_dict(structure):
     """
+    Create a Firmware object from a dictionary loaded from YAML or JSON
     """
     keys = structure.keys()
     f = Firmware()
     f.name = structure['name'] if 'name' in keys else None
     f.type = structure['type'] if 'type' in keys else None
     f.driver = structure['driver'] if 'driver' in keys else None
-    f.package_name = structure['package_name'] if 'package_name' in keys else None
-    f.package_md5 = structure['package_md5'] if 'package_md5' in keys else None
+    if 'package' in keys:
+      f.package_name = structure['package']['name']
+      f.package_md5 = structure['package']['md5']
+    else:
+      f.package_name = None
+      f.package_md5 = None
     f.versions = structure['versions'] if 'versions' in keys else []
     f.name = structure['name'] if 'name' in keys else None
 
     return f
 
-  def fetch_package(self, dest_dir="/var/tmp", base_url=None):
+  def fetch(self, tmp_dir=None, base_url=None):
     """
     Get the file, put it in the destination and confirm the checksum
     """
-    url = urlparse.urljoin(base_url, self.package_file)
-    urllib.urlretrieve(url, filename=os.path.join(dest_dir, self.package_file))
+    if base_url == None:
+      base_url = self.base_url
+    if tmp_dir == None:
+      tmp_dir = self.tmp_dir
+    url = urlparse.urljoin(base_url, self.package_name)
+    dest = os.path.join(tmp_dir, self.package_name)
+    urllib.urlretrieve(url, filename=dest)
 
+    # check the md5 sum
+    chksum = hashlib.md5()
+    chksum.update(open(dest).read())
+
+    if chksum.hexdigest() != self.package_md5:
+      raise Exception("md5 sum mismatch: actual: {} != expected: {}".format(chksum, self.package_md5))
+    
+
+  def install(self):
+    """
+    """
+    pass
 # 
 # ILOM
 # BIOS
@@ -332,6 +363,13 @@ def load_firmwares():
   
   if os.path.exists("firmware.yaml"):
     available = yaml.load(open("firmware.yaml"))
+    
+    # expand to this later:
+    # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
+    Firmware.tmp_dir = tempfile.mkdtemp()
+
+    # Tell the Firmware objects where to find the RPMs when asked to retrieve
+    Firmware.base_url = available['firmware_cache_url']
   else:
     available = None
 
@@ -365,6 +403,10 @@ def load_devices():
 
 if __name__ == "__main__":
 
+  # expand to this later:
+  # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
+  download_dir = tempfile.mkdtemp()
+  
   devices = load_devices()
   firmwares = load_firmwares()
 
@@ -372,6 +414,7 @@ if __name__ == "__main__":
   ilom_fw = [ifw for ifw in firmwares if ifw.type == 'ilom'][0]
   devices['ilom'].firmware = ilom_fw
   print("ILOM uptodate = {}".format(devices['ilom'].uptodate))
+  ilom_fw.fetch()
   
   # find all the bios fw
   bios_fw = [ bfw for bfw in firmwares if bfw.type == 'bios']
@@ -394,3 +437,5 @@ if __name__ == "__main__":
     # find a fw that matches
     nd.firmware = nic_fw_by_driver[nd.driver]
     print("NIC {} ({}) uptodate = {}".format(nd.device, nd.driver, nd.uptodate))
+
+  

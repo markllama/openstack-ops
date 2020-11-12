@@ -58,7 +58,8 @@ class Firmware(object):
     keys = structure.keys()
     f = Firmware()
     f.name = structure['name'] if 'name' in keys else None
-    f.type = structure['type'] if 'type' in keys else None    
+    f.type = structure['type'] if 'type' in keys else None
+    f.driver = structure['driver'] if 'driver' in keys else None
     f.package_name = structure['package_name'] if 'package_name' in keys else None
     f.package_md5 = structure['package_md5'] if 'package_md5' in keys else None
     f.versions = structure['versions'] if 'versions' in keys else []
@@ -365,23 +366,31 @@ def load_devices():
 if __name__ == "__main__":
 
   devices = load_devices()
-  fw = load_firmwares()
+  firmwares = load_firmwares()
 
   # should only be one ilom firmware
-  ilom_fw = [ifw for ifw in fw if ifw.type == 'ilom'][0]
+  ilom_fw = [ifw for ifw in firmwares if ifw.type == 'ilom'][0]
   devices['ilom'].firmware = ilom_fw
-  print("Ilom uptodate = {}".format(devices['ilom'].uptodate))
+  print("ILOM uptodate = {}".format(devices['ilom'].uptodate))
   
   # find all the bios fw
-  bios_fw = [ bfw for bfw in fw if bfw.type == 'bios']
+  bios_fw = [ bfw for bfw in firmwares if bfw.type == 'bios']
   # just pick the first for now
   devices['bios'].firmware = bios_fw[0]
+  print("BIOS uptodate = {}".format(devices['ilom'].uptodate))
 
   # There should be only one raid_fw
-  raid_fw = [ rfw for rfw in fw if rfw.type == 'raid']
+  raid_fw = [ rfw for rfw in firmwares if rfw.type == 'raid']
+  devices['raid'].firmware = raid_fw[0]
+  print("RAID uptodate = {}".format(devices['raid'].uptodate))
 
-  nic_fw_by_driver = {fw.driver: fw for fw in devices['nics']}
+  # Create an index for the nic firmwares by driver name
+  nic_fw_by_driver = {}
+  for nfw in [f for f in firmwares if f.type == 'nic']:
+    nic_fw_by_driver[nfw.driver]=nfw
+
   # match each nic device with a fw for the driver type
   for nd in devices['nics']:
     # find a fw that matches
     nd.firmware = nic_fw_by_driver[nd.driver]
+    print("NIC {} ({}) uptodate = {}".format(nd.device, nd.driver, nd.uptodate))

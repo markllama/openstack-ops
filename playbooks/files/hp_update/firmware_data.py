@@ -17,9 +17,6 @@ except:
   import urllib.parse as urlparse
 import yaml
 
-#HPE download repo token for mark.lamourine@rackspace.com
-# token = "R3WfOnFgSPkhmL7Df0gT03gtLSZ9HX5euTuPj97O7JuEVmIdQN0Yl-sjYLN4V_BBVy0VTJAShJ6l-5ull6luvg"
-
 base_url = "http://d490e1c1b2bc716e2eaf-63689fefdb0190e2db0220301cd1330e.r14.cf5.rackcdn.com/"
 
 def system_product_name():
@@ -36,6 +33,9 @@ def system_product_name():
 
   return str(response.strip().decode(encoding='UTF-8'))
 
+# ============================================================================
+# OBJECT CLASSES
+# ============================================================================
 
 class Firmware(object):
   """
@@ -47,6 +47,10 @@ class Firmware(object):
   base_url = None
   tmp_dir = None
 
+  # -------------------------------------------------------------------------
+  # Firmware Constructors
+  # -------------------------------------------------------------------------
+  
   def __init__(self,
                name=None,
                fw_type=None,
@@ -83,6 +87,10 @@ class Firmware(object):
 
     return f
 
+  # --------------------------------------------------------------------------
+  # Firmware properties
+  # --------------------------------------------------------------------------
+  
   @property
   def package_file(self):
     return os.path.join(self._package_dir, self.package_name)
@@ -107,6 +115,10 @@ class Firmware(object):
     if not os.path.exists(ud):
       os.mkdir(ud)
     return ud
+
+  # -------------------------------------------------------------------------
+  # Firmware Methods
+  # -------------------------------------------------------------------------
 
   def fetch(self, dest_dir=None, base_url=None):
     """
@@ -162,17 +174,22 @@ class Firmware(object):
   
 
     pass
+
+
+# ---------------------------------------------------------------------------
+# Device Class
+# ---------------------------------------------------------------------------
+
 # 
 # ILOM
 # BIOS
 # RAID
-# Nics
-#   broadcom (single)
-#   intel    (multiple)
+# NICS
 
 class Device(object):
   """
   Define data and operations for system firmware checking and update
+  This is an semi-abstract(ish) base class for the real devices
   """
 
   _hw_generations = ('gen8', 'gen9', 'gen10')
@@ -201,7 +218,17 @@ class Device(object):
 
     return match_string in self.current
 
-  def get_current(self):
+  @property  
+  def current(self):
+    """
+    TBD
+    """
+    if self._current == None:
+      self._current = self._get_current()
+
+    return self._current
+
+  def _get_current(self):
     p = subprocess.Popen(self._check_cmd,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
@@ -218,16 +245,10 @@ class Device(object):
 
     return fw_version
 
-  @property  
-  def current(self):
-    """
-    TBD
-    """
-    if self._current == None:
-      self._current = self.get_current()
-
-    return self._current
-
+# ---------------------------------------------------------------------------
+# Concrete Device Classes
+# ---------------------------------------------------------------------------
+# These classes represent the system devices that need firmware updates
 
 class IlomDevice(Device):
 
@@ -258,10 +279,18 @@ class RaidDevice(Device):
 
 
 class NicDevice(Device):
+  """
+  The NIC class is the most detailed because there can be many NICs and they
+  can use different drivers and firmware.
+  """
   _fw_type = "nic"
   _check_pattern = "^firmware-version: (.*)$"
   _check_format = "ethtool -i {}"
 
+  # ----------------------
+  # NIC Device Constructor
+  # ----------------------
+  
   def __init__(self, device=None, data=None):
     """
     Nic checks require a device
@@ -273,30 +302,13 @@ class NicDevice(Device):
     elif self.data != None:
       self.device = data['logicalname']
 
-  @property
-  def _check_cmd(self):
-    """
-    TBD
-    """
-    return self._check_format.format(self.device).split()
-
-  @property
-  def driver(self):
-    """
-    Return the driver module used by a giving nic device
-    """
-    driver_name = None
-
-    dev_file = open("/sys/class/net/{}/device/uevent".format(self.device),"r")
-    # Only change the value if you find it
-    for line in dev_file:
-      if "DRIVER=" in line:
-        driver_name = line.strip().split('=')[1]
-        break
-    dev_file.close()
-
-    return driver_name
-
+  # --------------------------
+  # NIC Device Static Methods:
+  # --------------------------
+  # These methods gather the list of NICs on a system and make queries
+  # These run against the entire system to determine the set of NIC
+  # devices to be examined.
+  
   @staticmethod
   def get_nic_devices():
     """
@@ -336,6 +348,36 @@ class NicDevice(Device):
       networks = [ n for n in networks if n['logicalname'] in nics ]
 
     return networks
+
+  # -------------------
+  # NIC Device Properties
+  # -------------------
+  # These methods define dynamic values that are retrieved for each NIC
+  # on demand
+  
+  @property
+  def _check_cmd(self):
+    """
+    TBD
+    """
+    return self._check_format.format(self.device).split()
+
+  @property
+  def driver(self):
+    """
+    Return the driver module used by a giving nic device
+    """
+    driver_name = None
+
+    dev_file = open("/sys/class/net/{}/device/uevent".format(self.device),"r")
+    # Only change the value if you find it
+    for line in dev_file:
+      if "DRIVER=" in line:
+        driver_name = line.strip().split('=')[1]
+        break
+    dev_file.close()
+
+    return driver_name
 
   @property
   def pci_slot(self):
@@ -461,8 +503,11 @@ def load_devices():
 
   return {'ilom': ilom, 'bios': bios, 'raid': raid, 'nics': nics}
 
-def cleanup(tmp_dir=None):
-  if tmp_dir != None:
+def _cleanup(tmp_dir=None):
+  """
+  This function removes the working directory on exit
+  """
+  if tmp_dir != None and os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir)
     
 if __name__ == "__main__":
@@ -473,7 +518,7 @@ if __name__ == "__main__":
   print("Working directory = {}".format(working_dir))
 
   # make sure to clean up when you're done
-  # atexit.register(cleanup, tmp_dir=working_dir)
+  # atexit.register(_cleanup, tmp_dir=working_dir)
   
   Firmware.tmp_dir = working_dir
   
@@ -493,7 +538,7 @@ if __name__ == "__main__":
     print("fetching ILOM RPM")
     ilom_fw.fetch()
     ilom_fw.unpack()
-    #ilom.fw.install()
+    ilom_fw.install()
   
   # find all the bios fw
   # bios_fw = [ bfw for bfw in firmwares if bfw.type == 'bios']

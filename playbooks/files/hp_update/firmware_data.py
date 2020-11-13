@@ -1,10 +1,12 @@
 #!/bin/env python
 from __future__ import print_function
 
+import atexit
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import types
@@ -81,29 +83,84 @@ class Firmware(object):
 
     return f
 
-  def fetch(self, tmp_dir=None, base_url=None):
+  @property
+  def package_file(self):
+    return os.path.join(self._package_dir, self.package_name)
+
+  @property
+  def _package_dir(self):
+    pd = os.path.join(self.tmp_dir, 'rpms')
+    if not os.path.exists(pd):
+      os.mkdir(pd)
+    return pd
+
+  @property
+  def _unpack_root(self):
+    ur = os.path.join(self.tmp_dir, 'unpack')
+    if not os.path.exists(ur):
+      os.mkdir(ur)
+    return ur
+
+  @property
+  def _unpack_dir(self):
+    ud = os.path.join(self._unpack_root, self.package_name)
+    if not os.path.exists(ud):
+      os.mkdir(ud)
+    return ud
+
+  def fetch(self, dest_dir=None, base_url=None):
     """
     Get the file, put it in the destination and confirm the checksum
     """
+
+    # If the caller gave a value it overrides the default location
     if base_url == None:
       base_url = self.base_url
-    if tmp_dir == None:
-      tmp_dir = self.tmp_dir
     url = urlparse.urljoin(base_url, self.package_name)
-    dest = os.path.join(tmp_dir, self.package_name)
-    urllib.urlretrieve(url, filename=dest)
 
-    # check the md5 sum
+    urllib.urlretrieve(url, filename=self.package_file)
+
+    # generate the md5 sum of the downloaded file
     chksum = hashlib.md5()
-    chksum.update(open(dest).read())
+    pkgfile = open(self.package_file)
+    chksum.update(pkgfile.read())
+    pkgfile.close()
 
+    # Verify that the file matches expectation
     if chksum.hexdigest() != self.package_md5:
       raise Exception("md5 sum mismatch: actual: {} != expected: {}".format(chksum, self.package_md5))
     
+    return self.package_file
 
-  def install(self):
+  def unpack(self, unpack_dir=None):
     """
+    Unpack a downloaded firmware RPM into a local directory
     """
+
+    cwd = os.getcwd()
+    os.chdir(self._unpack_dir)
+    convert_cmd = 'rpm2cpio ' + self.package_file
+    unpack_cmd = 'cpio --extract --quiet --make-directories ' + self._unpack_dir
+    convert = subprocess.Popen(convert_cmd.split(), stdout=subprocess.PIPE)
+    unpack = subprocess.check_output(unpack_cmd.split(), stdin=convert.stdout)
+    os.chdir(cwd)
+
+    return self._unpack_dir
+
+  def install(self, unpack_dir=None):
+    """
+    Install an HP firmware update from an unpacked RPM
+    """
+
+  # expect
+  #   <path>/hpsetup
+  #
+  #   expect("Continue (y/N)?")
+  #   sendline("y")
+  #   expect("Succeded.")
+  #   expect("iLO 4 reboot completed.")
+  
+
     pass
 # 
 # ILOM
@@ -171,6 +228,7 @@ class Device(object):
 
     return self._current
 
+
 class IlomDevice(Device):
 
   _fw_type = "ilom"
@@ -179,7 +237,7 @@ class IlomDevice(Device):
   
   def __init__(self):
     super(IlomDevice, self).__init__()
-  
+
 
 class BiosDevice(Device):
   _fw_type = "bios"
@@ -189,6 +247,7 @@ class BiosDevice(Device):
   def __init__(self):
     super(BiosDevice, self).__init__()
 
+
 class RaidDevice(Device):
   _fw_type = "raid"
   _check_pattern = "^\s*Firmware Version: (.*)$"
@@ -196,6 +255,7 @@ class RaidDevice(Device):
 
   def __init__(self):
     super(RaidDevice, self).__init__()
+
 
 class NicDevice(Device):
   _fw_type = "nic"
@@ -401,11 +461,21 @@ def load_devices():
 
   return {'ilom': ilom, 'bios': bios, 'raid': raid, 'nics': nics}
 
+def cleanup(tmp_dir=None):
+  if tmp_dir != None:
+    shutil.rmtree(tmp_dir)
+    
 if __name__ == "__main__":
 
   # expand to this later:
   # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
-  download_dir = tempfile.mkdtemp()
+  working_dir = tempfile.mkdtemp()
+  print("Working directory = {}".format(working_dir))
+
+  # make sure to clean up when you're done
+  # atexit.register(cleanup, tmp_dir=working_dir)
+  
+  Firmware.tmp_dir = working_dir
   
   devices = load_devices()
   firmwares = load_firmwares()
@@ -413,29 +483,42 @@ if __name__ == "__main__":
   # should only be one ilom firmware
   ilom_fw = [ifw for ifw in firmwares if ifw.type == 'ilom'][0]
   devices['ilom'].firmware = ilom_fw
+
   print("ILOM uptodate = {}".format(devices['ilom'].uptodate))
-  ilom_fw.fetch()
+  print("  actual:   {}\n  expected: {}".format(
+    devices['ilom'].current,
+    ilom_fw.versions[0]['match_string']))
+
+  if not devices['ilom'].uptodate:
+    print("fetching ILOM RPM")
+    ilom_fw.fetch()
+    ilom_fw.unpack()
+    #ilom.fw.install()
   
   # find all the bios fw
-  bios_fw = [ bfw for bfw in firmwares if bfw.type == 'bios']
-  # just pick the first for now
-  devices['bios'].firmware = bios_fw[0]
-  print("BIOS uptodate = {}".format(devices['ilom'].uptodate))
+  # bios_fw = [ bfw for bfw in firmwares if bfw.type == 'bios']
+  # # just pick the first for now
+  # devices['bios'].firmware = bios_fw[0]
+  # print("BIOS uptodate = {}".format(devices['bios'].uptodate))
+  # print("  actual:   {}\n  expected: {}".format(
+  #   devices['bios'].current,
+  #   bios_fw[0].versions[0]['match_string']))
 
-  # There should be only one raid_fw
-  raid_fw = [ rfw for rfw in firmwares if rfw.type == 'raid']
-  devices['raid'].firmware = raid_fw[0]
-  print("RAID uptodate = {}".format(devices['raid'].uptodate))
+  # # There should be only one raid_fw
+  # raid_fw = [ rfw for rfw in firmwares if rfw.type == 'raid'][0]
+  # devices['raid'].firmware = raid_fw
+  # print("RAID uptodate = {}".format(devices['raid'].uptodate))
+  # print("  actual:   {}\n  expected: {}".format(
+  #   devices['raid'].current,
+  #   raid_fw.versions[0]['match_string']))
 
-  # Create an index for the nic firmwares by driver name
-  nic_fw_by_driver = {}
-  for nfw in [f for f in firmwares if f.type == 'nic']:
-    nic_fw_by_driver[nfw.driver]=nfw
+  # # Create an index for the nic firmwares by driver name
+  # nic_fw_by_driver = {}
+  # for nfw in [f for f in firmwares if f.type == 'nic']:
+  #   nic_fw_by_driver[nfw.driver]=nfw
 
-  # match each nic device with a fw for the driver type
-  for nd in devices['nics']:
-    # find a fw that matches
-    nd.firmware = nic_fw_by_driver[nd.driver]
-    print("NIC {} ({}) uptodate = {}".format(nd.device, nd.driver, nd.uptodate))
-
-  
+  # # match each nic device with a fw for the driver type
+  # for nd in devices['nics']:
+  #   # find a fw that matches
+  #   nd.firmware = nic_fw_by_driver[nd.driver]
+  #   print("NIC {} ({}) uptodate = {}".format(nd.device, nd.driver, nd.uptodate))

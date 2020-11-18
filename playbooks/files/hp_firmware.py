@@ -338,6 +338,8 @@ def system_product_name():
   if p.returncode != 0:
     response = "Family Model Generation"
 
+  return response
+
 
 def load_firmware_data(filename):
   """

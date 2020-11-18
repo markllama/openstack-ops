@@ -50,13 +50,14 @@ requirements = {
   'redhat': [
     "dmidecode",
     "ethtool",
-    "pciutils",
+    "ipmitool",
     "lshw",
-    "ipmitool"
+    "pciutils",
+    "pexpect"
   ],
   'hp': [
-    "hponcfg",
     "hp-health",
+    "hponcfg",
     "ssacli"
   ]
 }
@@ -258,13 +259,17 @@ def cmp_version_string(vs0, vs1):
   # The version strings are the same
   return 0
 
-def update_redhat_packages(packages=[]):
+def update_redhat_packages(packages=[], enablerepo=None):
   """
   Install or update a set of packages provided.
   """
 
-  cmd_template = "/bin/env yum -y install {}"
-  cmd_string = cmd_template.format(" ".join(packages))
+  if enablerepo != None:
+    yum_options = "--enablerepo " + enablerepo
+  else:
+    yum_options = ""
+  cmd_template = "/bin/env yum -y {} install {}"
+  cmd_string = cmd_template.format(yum_options, " ".join(packages))
   logging.debug("yum update command: {}".format(cmd_string))
   
   yum_cmd = subprocess.Popen(cmd_string.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -283,7 +288,7 @@ def check_redhat_prerequisites(install=False):
   Install or update prerequisite packages on a Red Hat (RPM) based system.
   """
 
-  package_status = package_versions(redhat_packages)
+  package_status = package_versions(requirements['redhat'])
   logging.debug("package status = {}".format(package_status))
 
   missing_rhel_packages = [ p for p in package_status.keys() if package_status[p] == None]
@@ -299,7 +304,7 @@ def check_redhat_prerequisites(install=False):
     write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=yum_fd)
     yum_fd.close()
     
-  package_status = package_versions(hp_packages)
+  package_status = package_versions(requirements['hp'])
   logging.debug("package status = {}".format(package_status))
 
   missing_hp_packages = [ p for p in package_status.keys() if package_status[p] == None]

@@ -539,7 +539,6 @@ def load_firmwares(firmware_data_file):
 
   # This is not really efficient, but lists of things should be lists
   fw_specs = [ s['devices'] for s in available['systems'] if s['name'] == sysgen ][0]
-  #print("There are {} firmware specs for {}\n\n{}".format(len(fw_specs), sysgen, fw_specs))
 
   firmwares = []
   for s in fw_specs:
@@ -575,6 +574,48 @@ class Device(object):
     self.available = None
     self.firmware = None
 
+  def report(self):
+    return {
+      'type': self._fw_type,
+      'current': self.current,
+      'available': self.match_string,
+      'uptodate': self.uptodate
+    }
+
+  def map_firmware(self, firmwares, **kwargs):
+    """
+    For this device, find the matching firmware if present
+    Subclasses my have additional selectors so the **kwargs are allowed for
+    all methods
+    """
+    # What type am I? self._fw_type
+
+    fw_list = [ f for f in firmwares if f.type == self._fw_type ]
+    if len(fw_list) == 0:
+      logging.debug("no firmware matching device type {}".format(self._fw_type))
+    if len(fw_list) == 1:
+      self.firmware = fw_list[0]
+    elif len(fw_list) > 1:
+      logging.warn("There are {} firmwares of type {} - using the first.".format(len(fw_list), self._fw_type))
+      self.firmware = fw_list[0]
+
+    logging.debug("(Device) Assigning device {} to firmware {}".format(self._fw_type, self.firmware))
+
+  @property
+  def match_string(self):
+    """
+    TBD
+    """
+    if len(self.firmware.versions) == 1:
+      # There is only one match string, so compare that
+      match_string = self.firmware.versions[0]['match_string']
+    else:
+      # 
+      raise Exception("Device {}: There's more than one match string".format(self.device))
+
+    return match_string
+
+  
   @property
   def uptodate(self, actual=None, available=None):
     """
@@ -583,12 +624,7 @@ class Device(object):
     if self.firmware == None:
       return None
 
-    if len(self.firmware.versions) == 1:
-      match_string = self.firmware.versions[0]['match_string']
-    else:
-      return True
-
-    return match_string in self.current
+    return self.match_string in self.current
 
   @property  
   def current(self):
@@ -640,6 +676,24 @@ class BiosDevice(Device):
   def __init__(self):
     super(BiosDevice, self).__init__()
 
+  def map_firmware(self, firmwares, name="bios", **kwargs):
+    """
+    For this device, find the matching firmware if present
+    If there are multiple bios firmwares available, pick the one
+    with the matching name
+    """
+    # What type am I? self._fw_type
+
+    fw_list = [ f for f in firmwares if f.type == self._fw_type and f.name == name ]
+    if len(fw_list) == 0:
+      logging.debug("no firmware matching device type {}".format(self._fw_type))
+    if len(fw_list) == 1:
+      self.firmware = fw_list[0]
+    elif len(fw_list) > 1:
+      logging.warn("There are {} firmwares of type {} - using the first.".format(len(fw_list), self._fw_type))
+      self.firmware = fw_list[0]
+
+    logging.debug("(BiosDevice) Assigning device {} to firmware {}({})".format(self._fw_type, self.firmware, self.firmware.name))
 
 class RaidDevice(Device):
   _fw_type = "raid"
@@ -674,6 +728,30 @@ class NicDevice(Device):
     elif self.data != None:
       self.device = data['logicalname']
 
+  def report(self):
+    return {
+      'type': self._fw_type,
+      'name': self.device,
+      'driver': self.driver,
+      'current': self.current,
+      'available': self.match_string,
+      'uptodate': self.uptodate
+    }
+
+  @property
+  def match_string(self):
+    """
+    TBD
+    """
+    if len(self.firmware.versions) == 1:
+      # There is only one match string, so compare that
+      match_string = self.firmware.versions[0]['match_string']
+    else:
+      model = self.hp_model_number
+      match_string = [ m for m in self.firmware.versions if m['model'] == model ][0]['match_string']
+
+    return match_string
+  
   # --------------------------
   # NIC Device Static Methods:
   # --------------------------
@@ -794,6 +872,25 @@ class NicDevice(Device):
 
     return None if match == None else match.group(0)
 
+  def map_firmware(self, firmwares, **kwargs):
+    """
+    For NIC device, find the matching firmware if present.
+    NIC devices are mapped by the NIC's driver attribute.
+    If there are multiple bios firmwares available, pick the one
+    with the matching name
+    """
+    # What type am I? self._fw_type
+
+    fw_list = [ f for f in firmwares if f.type == self._fw_type and self.driver == f.driver ]
+    if len(fw_list) == 0:
+      logging.debug("no firmware matching device type {}".format(self._fw_type))
+    if len(fw_list) == 1:
+      self.firmware = fw_list[0]
+    elif len(fw_list) > 1:
+      logging.warn("There are {} firmwares of type {} - using the first.".format(len(fw_list), self._fw_type))
+      self.firmware = fw_list[0]
+
+    logging.debug("(NicDevice) Assigning device {} to driver {}({})".format(self.device, self.driver, self._fw_type))
 
 # ------------------------------------------------------------------------
 # Data Load/Access function
@@ -840,7 +937,26 @@ def load_devices():
   hardware_nics = NicDevice.get_nic_data(NicDevice.get_nic_devices())
   nics = [ NicDevice(data=n) for n in hardware_nics ]
 
-  return {'ilom': ilom, 'bios': bios, 'raid': raid, 'nics': nics}
+  return [ ilom, bios, raid ] + nics
+
+def report(devices):
+  """
+  Generate a JSON formatted status report for the server devices and firmware status
+  """
+
+  report = {
+    'server_number': server_number(),
+    'devices': [ ]
+  }
+
+  for d in devices:
+    entry = d.report()
+    report['devices'].append(entry)
+
+
+  print(json.dumps(report, indent=2))
+
+  
 
 def _cleanup(tmp_dir=None):
   """
@@ -849,7 +965,6 @@ def _cleanup(tmp_dir=None):
   if tmp_dir != None and os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir)
     
-
 # ========================================================================
 # MAIN
 # ========================================================================
@@ -890,3 +1005,17 @@ if __name__ == "__main__":
   
   devices = load_devices()
   firmwares = load_firmwares(opts.firmware_data)
+
+  # map a firmware to each device
+  for device in devices:
+    device.map_firmware(firmwares)
+
+  # At this point all of the devices should have a firmware attached.
+  # We can generate a report
+  #
+  if opts.report == True:
+    logging.debug("Generating JSON report")
+    report(devices)
+  
+  
+

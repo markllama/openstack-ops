@@ -105,6 +105,17 @@ def process_cli(args):
   )
 
   parser.add_argument(
+    "--verbose", "-v", action='store_true', default=False,
+    help="report progress as it goes"
+  )
+
+  parser.add_argument(
+    # This is a negative switch so later you can check 'opts.cleanup'
+    "--no-cleanup", action='store_false', default=True, dest='cleanup',
+    help="leave temporary files in place on exit"
+  )
+
+  parser.add_argument(
     "--product-name", "-p", 
     help="Specify the HP product string. Override the dmidecode response"
   )
@@ -468,7 +479,7 @@ class Firmware(object):
     if base_url == None:
       base_url = self.base_url
     url = urlparse.urljoin(base_url, self.package_name)
-
+    logging.debug("retrieving RPM {} from {}".format(self.package_name, url))
     urllib.urlretrieve(url, filename=self.package_file)
 
     # generate the md5 sum of the downloaded file
@@ -490,6 +501,7 @@ class Firmware(object):
 
     cwd = os.getcwd()
     os.chdir(self._unpack_dir)
+    logging.debug("unpacking in {}: {}".format(self._unpack_dir, self.package_name))
     convert_cmd = 'rpm2cpio ' + self.package_file
     unpack_cmd = 'cpio --extract --quiet --make-directories ' + self._unpack_dir
     convert = subprocess.Popen(convert_cmd.split(), stdout=subprocess.PIPE)
@@ -524,7 +536,8 @@ def load_firmwares(firmware_data_file):
     
     # expand to this later:
     # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
-    Firmware.tmp_dir = tempfile.mkdtemp()
+    if Firmware.tmp_dir == None:
+      Firmware.tmp_dir = tempfile.mkdtemp()
 
     # Tell the Firmware objects where to find the RPMs when asked to retrieve
     Firmware.base_url = available['firmware_cache_url']
@@ -729,7 +742,7 @@ class NicDevice(Device):
       self.device = data['logicalname']
 
   def report(self):
-    return {
+    data = {
       'type': self._fw_type,
       'name': self.device,
       'driver': self.driver,
@@ -737,6 +750,12 @@ class NicDevice(Device):
       'available': self.match_string,
       'uptodate': self.uptodate
     }
+
+    model = self.hp_model_number
+    if model != None:
+      data['model'] = model
+
+    return data
 
   @property
   def match_string(self):
@@ -953,7 +972,6 @@ def report(devices):
     entry = d.report()
     report['devices'].append(entry)
 
-
   print(json.dumps(report, indent=2))
 
   
@@ -962,6 +980,7 @@ def _cleanup(tmp_dir=None):
   """
   This function removes the working directory on exit
   """
+  logging.debug("cleaning up {}".format(tmp_dir))
   if tmp_dir != None and os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir)
     
@@ -1001,7 +1020,8 @@ if __name__ == "__main__":
   Firmware.tmp_dir = working_dir
 
   # make sure to clean up when you're done
-  atexit.register(_cleanup, tmp_dir=working_dir)
+  if opts.cleanup:
+    atexit.register(_cleanup, tmp_dir=working_dir)
   
   devices = load_devices()
   firmwares = load_firmwares(opts.firmware_data)
@@ -1016,6 +1036,20 @@ if __name__ == "__main__":
   if opts.report == True:
     logging.debug("Generating JSON report")
     report(devices)
-  
-  
+    sys.exit(0)
 
+  # select the firmwares that need updating
+  # Using a set() automatically eliminates duplicates
+  outofdate = set()
+  for d in devices:
+    if d.uptodate != True:
+      outofdate.add(d.firmware)
+
+  logging.info("{} firmwares need updating".format(len(outofdate)))
+
+  # we can print here the list of firmwares that need updating
+  if opts.verbose == True:
+    for f in outofdate:
+      print("updating {}: RPM: {}".format(f.type, f.package_name))
+      f.fetch()
+      f.unpack()

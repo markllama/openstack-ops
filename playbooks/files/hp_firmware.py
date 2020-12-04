@@ -75,25 +75,6 @@ requirements = {
 # ------------------------------------------------------------------------
 # CLI Argument Processing
 # ------------------------------------------------------------------------
-#
-# -D --firmware-data - A JSON file containing the firmware definitions for updates
-#    default: ./firmware_data.yaml
-# -f --flash - execute changes
-#    default: false
-# -i --install - install missing utilities and run check
-#    default: false
-# -r --yum-repo-file - where to install the yum repo file for HP packages
-#
-# -r --report - generate a report of current state
-#    default: true
-# -s --subsystems - ILO, SYS, NIC, INIC, RAID  (SYS == BIOS, INIC = Intel 10GB)
-#    default: all
-# -m --meltdown - install special BIOS firmware to mitigate spectre/meltdown CVE
-#                 https://nvd.nist.gov/vuln/detail/CVE-2017-5754
-# -M
-# -G --hw-gen - Hardware Generation gen8, gen9, gen10 - overrides dmidecode response
-#
-# -B --fw-build - Firmware build - a string that is usually YYYY.MM.S where S is a serial number starting with 0 in the month
 
 def process_cli(args):
   parser = argparse.ArgumentParser(
@@ -150,21 +131,28 @@ def process_cli(args):
     help="generate a JSON formatted report of the current firmware versions"
   )
 
+  parser.add_argument(
+    '--bios-name', '-b', choices=['bios', 'meltdown'], default='bios',
+    help='select meltdown version of BIOS if it is available'
+  )
+
   #
   subsys_selector=parser.add_mutually_exclusive_group()
   subsys_selector.add_argument(
-    "--all", "-a", action='store_const', dest='subsystems', const=['ilo', 'sys', 'nic', 'inic', 'raid'],
+    "--all", "-a", action='store_const', dest='subsystems', const=['ilom', 'bios', 'nic', 'inic', 'raid'],
     help="update all subsystems"
   )
   
   subsys_selector.add_argument(
-    "--subsystem", "-s", action='append', type=str, nargs='*', dest="subsystems",
-    choices=['ilo', 'sys', 'nic', 'inic', 'raid'],
+    "--subsystem", "-s", type=str, nargs='*', dest="subsystems",
+    choices=['ilom', 'bios', 'nic', 'inic', 'raid'],
     help="The set of firmware subsystems to query or update"
   )
   
-  
   opts = parser.parse_args(args)
+
+  if opts.subsystems == None:
+    opts.subsystems = ['ilom', 'bios', 'nic', 'inic', 'raid']
 
   return opts
 
@@ -499,14 +487,14 @@ class Firmware(object):
     Unpack a downloaded firmware RPM into a local directory
     """
 
-    cwd = os.getcwd()
-    os.chdir(self._unpack_dir)
-    logging.debug("unpacking in {}: {}".format(self._unpack_dir, self.package_name))
     convert_cmd = 'rpm2cpio ' + self.package_file
-    unpack_cmd = 'cpio --extract --quiet --make-directories ' + self._unpack_dir
+    logging.debug("convert command: {}".format(convert_cmd))
+    unpack_cmd = 'cpio --extract --quiet --make-directories'
+    logging.debug("unpack command: {}".format(unpack_cmd))
+    logging.debug("unpacking in {}".format(self._unpack_dir))
     convert = subprocess.Popen(convert_cmd.split(), stdout=subprocess.PIPE)
-    unpack = subprocess.check_output(unpack_cmd.split(), stdin=convert.stdout)
-    os.chdir(cwd)
+    unpack = subprocess.check_output(unpack_cmd.split(), stdin=convert.stdout, cwd=self._unpack_dir)
+    convert.wait()
 
     return self._unpack_dir
 
@@ -514,6 +502,18 @@ class Firmware(object):
     """
     Install an HP firmware update from an unpacked RPM
     """
+
+    # find the directory that contains the hpsetup script in the unpack dir
+    setup_dir = [ ds[0] for ds in os.walk(self._unpack_dir) if 'hpsetup' in ds[2] ][0]
+
+    install_cmd = "/bin/echo /usr/bin/env bash ./hpsetup"
+    logging.debug("install command: {}".format(install_cmd))
+
+    
+    install = subprocess.Popen(install_cmd.split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=setup_dir)
+    (stdin, stdout) = install.communicate()
+    #stdout = stdout.decode(encoding='UTF-8')
+    print("install stdout: {}".format(stdout))
 
   # expect
   #   <path>/hpsetup
@@ -526,7 +526,7 @@ class Firmware(object):
 
     pass
 
-def load_firmwares(firmware_data_file):
+def load_firmwares(firmware_data_file, subsystems=None, selectors={}):
   sysgen = system_product_name()
   logging.info("System is: {}".format(sysgen))
   
@@ -551,6 +551,8 @@ def load_firmwares(firmware_data_file):
     sys.exit(1)
 
   # This is not really efficient, but lists of things should be lists
+  # this just grabs the first one from the list.
+  # TODO: check the selectors={} to find the one with the right name
   fw_specs = [ s['devices'] for s in available['systems'] if s['name'] == sysgen ][0]
 
   firmwares = []
@@ -781,7 +783,7 @@ class NicDevice(Device):
   @staticmethod
   def get_nic_devices():
     """
-    Return a list of NIC devices. Filter out vlans and virtual devices
+    Return a list of NIC devices from /sys/class/net. Filter out vlans and virtual devices
     """
     # Collect the names of the current net interfaces
     nics = [ os.path.basename(n) for n in os.listdir('/sys/class/net') ]
@@ -794,7 +796,7 @@ class NicDevice(Device):
   @staticmethod
   def get_nic_data(nics=None):
     """
-    TBD
+    Get the network hardware data for a list of nics
     """
     list_nets_cmd_str = "lshw -c network -json"
   
@@ -948,15 +950,31 @@ def _decode_dict(data):
   return rv
   
 
-def load_devices():
+def load_devices(subsystems=None):
+  """
+  Create device objects for all of the requested subsystems
+  NICs are funny.  We specify two different types distinguished by the driver used and the manufacturer
+  """
+  devices = []
+  if 'ilom' in subsystems:
+    devices.append(IlomDevice())
 
-  ilom = IlomDevice()
-  bios = BiosDevice()
-  raid = RaidDevice()
+  if 'bios' in subsystems:
+    devices.append(BiosDevice())
+
+  if 'raid' in subsystems:
+    devices.append(RaidDevice())
+
+  # get_nic_data collects all the hardware information for the system at once
   hardware_nics = NicDevice.get_nic_data(NicDevice.get_nic_devices())
-  nics = [ NicDevice(data=n) for n in hardware_nics ]
+  all_nics = [ NicDevice(data=n) for n in hardware_nics ]
 
-  return [ ilom, bios, raid ] + nics
+  # Filter for the nics we asked for: only Broadcom or Intel
+  broadcom_nics = [n for n in all_nics if n.driver == 'tg3'] if 'nic' in subsystems else []
+  intel_nics = [n for n in all_nics if n.driver == 'ixgbe'] if 'inic' in subsystems else []
+  
+  return devices + broadcom_nics + intel_nics
+
 
 def report(devices):
   """
@@ -983,13 +1001,27 @@ def _cleanup(tmp_dir=None):
   logging.debug("cleaning up {}".format(tmp_dir))
   if tmp_dir != None and os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir)
-    
+
+def load_data(data_file):
+  """
+  """
+  if os.path.isfile(data_file):
+    logging.info("loading firmware data from {}".format(data_file))
+    firmware_data = load_firmware_data(data_file)
+  else:
+    logging.warning("firmware data file missing: {}".format(data_file))
+    firmware_data = None
+
+  return firmware_data
+
+  
 # ========================================================================
 # MAIN
 # ========================================================================
 if __name__ == "__main__":
   opts = process_cli(sys.argv[1:])
 
+  # Initialize verbose/debug output
   if opts.debug:
     logging.basicConfig(level=logging.DEBUG)
   else:
@@ -997,13 +1029,8 @@ if __name__ == "__main__":
 
   logging.info("updating firmware on subsystems: {}".format(opts.subsystems))
   
-  # Read the update spec 
-  if os.path.isfile(opts.firmware_data):
-    logging.info("loading firmware data from {}".format(opts.firmware_data))
-    firmware_data = load_firmware_data(opts.firmware_data)
-  else:
-    logging.warning("firmware data file missing: {}".format(opts.firmware_data))
-    pass
+  # Read the update spec
+  load_data(opts.firmware_data)
 
   # check OS
   if is_redhat():
@@ -1022,9 +1049,12 @@ if __name__ == "__main__":
   # make sure to clean up when you're done
   if opts.cleanup:
     atexit.register(_cleanup, tmp_dir=working_dir)
+
+  # Create device objects for the requested subsystems
+  devices = load_devices(opts.subsystems)
   
-  devices = load_devices()
-  firmwares = load_firmwares(opts.firmware_data)
+  # Load the firmware availablility data for the requested subsystems (and BIOS has flavors)
+  firmwares = load_firmwares(opts.firmware_data, opts.subsystems, {'bios': opts.bios_name})
 
   # map a firmware to each device
   for device in devices:
@@ -1047,9 +1077,16 @@ if __name__ == "__main__":
 
   logging.info("{} firmwares need updating".format(len(outofdate)))
 
+  logging.info("updating these firmware types: {}".format(opts.subsystems))
+
   # we can print here the list of firmwares that need updating
-  if opts.verbose == True:
-    for f in outofdate:
-      print("updating {}: RPM: {}".format(f.type, f.package_name))
+  for f in outofdate:
+    if f.type in opts.subsystems:
+      if opts.verbose == True:
+        print("updating {}: RPM: {}".format(f.type, f.package_name))
+
       f.fetch()
       f.unpack()
+    
+      if opts.flash == True:
+        f.install()

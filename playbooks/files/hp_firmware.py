@@ -404,6 +404,8 @@ class Firmware(object):
     self.package_name = package_name
     self.package_md5 = package_md5
 
+    self._devices = []
+
   @staticmethod
   def from_dict(structure):
     """
@@ -454,6 +456,24 @@ class Firmware(object):
       os.mkdir(ud)
     return ud
 
+  # -------------------------------------------------------------------------
+  # Reporting Methods
+  # -------------------------------------------------------------------------
+  def report(self):
+    r = {
+      'name': self.name,
+      'type': self.type,
+      'driver': self.driver,
+      'versions': self.versions,
+      'package_name': self.package_name,
+      'package_md5': self.package_md5,
+      'devices': []
+    }
+
+    for d in self._devices:
+      r['devices'] += [d.report()]
+    return r
+  
   # -------------------------------------------------------------------------
   # Firmware Methods
   # -------------------------------------------------------------------------
@@ -616,6 +636,8 @@ class Device(object):
 
     logging.debug("(Device) Assigning device {} to firmware {}".format(self._fw_type, self.firmware))
 
+    self.firmware._devices += [self]
+
   @property
   def match_string(self):
     """
@@ -709,6 +731,8 @@ class BiosDevice(Device):
       self.firmware = fw_list[0]
 
     logging.debug("(BiosDevice) Assigning device {} to firmware {}({})".format(self._fw_type, self.firmware, self.firmware.name))
+
+    self.firmware._devices += [self]
 
 class RaidDevice(Device):
   _fw_type = "raid"
@@ -992,6 +1016,22 @@ def device_report(devices):
 
   print(json.dumps(report, indent=2))
 
+def firmware_report(firmwares):
+  """
+  Generate a JSON formatted status report for the server devices and firmware status
+  """
+
+  report = {
+    'server_number': server_number(),
+    'firmwares': [ ]
+  }
+
+  for f in firmwares:
+    if len(f._devices) > 0:
+      entry = f.report()
+      report['firmwares'].append(entry)
+
+  print(json.dumps(report, indent=2))
   
 
 def _cleanup(tmp_dir=None):
@@ -1065,7 +1105,8 @@ if __name__ == "__main__":
   #
   if opts.report == True:
     logging.debug("Generating JSON report")
-    device_report(devices)
+    #device_report(devices)
+    firmware_report(firmwares)
     sys.exit(0)
 
   # select the firmwares that need updating

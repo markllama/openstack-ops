@@ -713,7 +713,7 @@ class BiosDevice(Device):
   def __init__(self):
     super(BiosDevice, self).__init__()
 
-  def map_firmware(self, firmwares, name="bios", **kwargs):
+  def map_firmware(self, firmwares, selectors={'bios': 'bios'}, **kwargs):
     """
     For this device, find the matching firmware if present
     If there are multiple bios firmwares available, pick the one
@@ -721,6 +721,8 @@ class BiosDevice(Device):
     """
     # What type am I? self._fw_type
 
+    name = selectors['bios'] if 'bios' in selectors.keys() else 'bios'
+    
     fw_list = [ f for f in firmwares if f.type == self._fw_type and f.name == name ]
     if len(fw_list) == 0:
       logging.debug("no firmware matching device type {}".format(self._fw_type))
@@ -1096,11 +1098,13 @@ if __name__ == "__main__":
   devices = load_devices(opts.subsystems)
   
   # Load the firmware availablility data for the requested subsystems (and BIOS has flavors)
-  firmwares = load_firmwares(opts.firmware_data, opts.subsystems, {'bios': opts.bios_name})
+  #firmwares = load_firmwares(opts.firmware_data, opts.subsystems, {'bios': opts.bios_name})
+  firmwares = load_firmwares(opts.firmware_data)
+  
 
   # map a firmware to each device
   for device in devices:
-    device.map_firmware(firmwares)
+    device.map_firmware(firmwares, selectors={'bios': opts.bios_name})
 
   # At this point all of the devices should have a firmware attached.
   # We can generate a report

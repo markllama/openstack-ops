@@ -937,6 +937,8 @@ class NicDevice(Device):
 
     logging.debug("(NicDevice) Assigning device {} to driver {}({})".format(self.device, self.driver, self._fw_type))
 
+    self.firmware._devices += [self]
+
 # ------------------------------------------------------------------------
 # Data Load/Access function
 # ------------------------------------------------------------------------

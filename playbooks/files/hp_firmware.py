@@ -976,7 +976,7 @@ def load_devices(subsystems=None):
   return devices + broadcom_nics + intel_nics
 
 
-def report(devices):
+def device_report(devices):
   """
   Generate a JSON formatted status report for the server devices and firmware status
   """
@@ -1065,7 +1065,7 @@ if __name__ == "__main__":
   #
   if opts.report == True:
     logging.debug("Generating JSON report")
-    report(devices)
+    device_report(devices)
     sys.exit(0)
 
   # select the firmwares that need updating

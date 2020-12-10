@@ -212,7 +212,7 @@ def write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=sys.st
   """
 
   # set the hardware specific parts of the repo URL
-  baseurl = yum_baseurl_templates[rpm_source].format(system_spec['spp-gen'], system_spec['spp-version'])
+  baseurl = yum_baseurl_templates[rpm_source].format(system_spec['gen'], system_spec['version'])
   repo_spec = yum_repo_template.format(baseurl)
     
   repo_fd.write(repo_spec)
@@ -298,30 +298,27 @@ def check_redhat_prerequisites(install=False):
   """
 
   package_status = package_versions(requirements['redhat'])
-  logging.debug("package status = {}".format(package_status))
+  logging.info("redhat package status = {}".format(package_status))
 
   missing_rhel_packages = [ p for p in package_status.keys() if package_status[p] == None]
 
   # install required packages
-  if install:
+  if len(missing_rhel_packages) > 0 and install:
     logging.info("installing missing rhel packages: {}".format(", ".join(missing_rhel_packages)))
     update_redhat_packages(missing_rhel_packages)
-
-  # add/update the hp-spp yum repo
-  if install:
-    yum_fd = open(opts.yum_repo_file, "w+")
-    write_hp_firmware_yum_repo_spec(system_spec, rpm_source='hp', repo_fd=yum_fd)
-    yum_fd.close()
     
   package_status = package_versions(requirements['hp'])
-  logging.debug("package status = {}".format(package_status))
+  logging.info("hp package status = {}".format(package_status))
 
-  missing_hp_packages = [ p for p in package_status.keys() if package_status[p] == None]
+  missing_hp_packages = \
+    [ p for p in package_status.keys() if package_status[p] == None]
 
   # install required packages
-  if install:
+  if len(missing_hp_packages) > 0 and install:
     logging.info("installing missing hp packages: {}".format(", ".join(missing_hp_packages)))
     update_redhat_packages(missing_hp_packages)
+
+  
 
 def server_number():
   """
@@ -351,23 +348,6 @@ def system_product_name():
 
   return response.strip()
 
-
-def load_firmware_data(filename):
-  """
-  Load a structure defining the
-  """
-  if filename.endswith('.yaml'):
-    try:
-      fw_data = yaml.load(open(filename), Loader=yaml.FullLoader)
-    except:
-      fw_data = yaml.load(open(filename))
-    pass
-  if filename.endswith('.json'):
-    fw_data = json.load(open(filename), object_hook=_decode_dict)
-  else:
-    fw_data = None
-
-  return fw_data
 
 # ===========================================================================
 # ===========================================================================
@@ -464,11 +444,14 @@ class Firmware(object):
       'name': self.name,
       'type': self.type,
       'driver': self.driver,
-      'versions': self.versions,
       'package_name': self.package_name,
       'package_md5': self.package_md5,
       'devices': []
     }
+
+    # if only one version, put it in
+    # if more than one then only show matched ones
+    r['versions'] = self.versions,
 
     for d in self._devices:
       r['devices'] += [d.report()]
@@ -546,35 +529,9 @@ class Firmware(object):
 
     pass
 
-def load_firmwares(firmware_data_file, subsystems=None, selectors={}):
-  sysgen = system_product_name()
-  logging.info("System is: {}".format(sysgen))
-  
-  if os.path.exists(firmware_data_file):
-    logging.debug("Loading {}".format(firmware_data_file))
-    available = yaml.load(open(firmware_data_file))
-    
-    # expand to this later:
-    # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
-    if Firmware.tmp_dir == None:
-      Firmware.tmp_dir = tempfile.mkdtemp()
-
-    # Tell the Firmware objects where to find the RPMs when asked to retrieve
-    Firmware.base_url = available['firmware_cache_url']
-  else:
-    available = None
+def load_firmwares(fw_specs):
 
   # is this a known system type?
-  if str(sysgen) not in [ str(p['name']) for p in available['systems']]:
-    print("Unrecognized system: '{}'".format(str(sysgen)))
-    print("Available = {}".format([ p['name'] for p in available['systems']]))
-    sys.exit(1)
-
-  # This is not really efficient, but lists of things should be lists
-  # this just grabs the first one from the list.
-  # TODO: check the selectors={} to find the one with the right name
-  fw_specs = [ s['devices'] for s in available['systems'] if s['name'] == sysgen ][0]
-
   firmwares = []
   for s in fw_specs:
     fw = Firmware.from_dict(s)
@@ -631,7 +588,7 @@ class Device(object):
     if len(fw_list) == 1:
       self.firmware = fw_list[0]
     elif len(fw_list) > 1:
-      logging.warn("There are {} firmwares of type {} - using the first.".format(len(fw_list), self._fw_type))
+      logging.warn("There are {} firmwares of type {} - using the first.".format(len(fw_list), self._fw_type['systems']))
       self.firmware = fw_list[0]
 
     logging.debug("(Device) Assigning device {} to firmware {}".format(self._fw_type, self.firmware))
@@ -928,9 +885,18 @@ class NicDevice(Device):
     """
     # What type am I? self._fw_type
 
-    fw_list = [ f for f in firmwares if f.type == self._fw_type and self.driver == f.driver ]
+    logging.debug("device: type: {} with driver {}".format(self._fw_type, self.driver))
+
+    fw_list = []
+    for f in firmwares:
+      logging.debug("checking firmware type: {} name: {}".format(f.type, f.driver))
+      if f.type == self._fw_type and self.driver == f.driver:
+        fw_list += [f]
+    
+#    fw_list = [ f for f in firmwares if f.type == self._fw_type and self.driver == f.driver ]
+    
     if len(fw_list) == 0:
-      logging.debug("no firmware matching device type {}".format(self._fw_type))
+      logging.debug("no firmware matching device type {} for {}".format(self._fw_type, self.driver))
     if len(fw_list) == 1:
       self.firmware = fw_list[0]
     elif len(fw_list) > 1:
@@ -1046,17 +1012,25 @@ def _cleanup(tmp_dir=None):
   if tmp_dir != None and os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir)
 
-def load_data(data_file):
+def load_data(filename):
   """
   """
-  if os.path.isfile(data_file):
-    logging.info("loading firmware data from {}".format(data_file))
-    firmware_data = load_firmware_data(data_file)
+  if os.path.isfile(filename):
+    logging.info("loading firmware data from {}".format(filename))
+    if filename.endswith('.yaml'):
+      try:
+        fw_data = yaml.load(open(filename), Loader=yaml.FullLoader)
+      except:
+        fw_data = yaml.load(open(filename))
+    elif filename.endswith('.json'):
+      fw_data = json.load(open(filename), object_hook=_decode_dict)
+    else:
+      fw_data = None
   else:
     logging.warning("firmware data file missing: {}".format(data_file))
-    firmware_data = None
+    fw_data = None
 
-  return firmware_data
+  return fw_data
 
   
 # ========================================================================
@@ -1069,20 +1043,46 @@ if __name__ == "__main__":
   if opts.debug:
     logging.basicConfig(level=logging.DEBUG)
   else:
-     logging.basicConfig(level=logging.WARNING)
+    if opts.verbose:
+     logging.basicConfig(level=logging.INFO)
 
   logging.info("updating firmware on subsystems: {}".format(opts.subsystems))
-  
-  # Read the update spec
-  load_data(opts.firmware_data)
 
-  # check OS
-  if is_redhat():
-    check_redhat_prerequisites(opts.install)
+  # Read the update spec
+  fw_data = load_data(opts.firmware_data)
+  logging.info("There are {} system definitions in {}".format(len(fw_data['systems']), opts.firmware_data))
+
+  # Tell the Firmware objects where to find the RPMs when asked to retrieve
+  Firmware.base_url = fw_data['firmware_cache_url']
+  
+  sysgen = system_product_name()
+  logging.info("System is: {}".format(sysgen))
+
+  if str(sysgen) not in [ str(p['name']) for p in fw_data['systems']]:
+    print("Unrecognized system: '{}'".format(str(sysgen)))
+    print("Available = {}".format([ p['name'] for p in fw_data['systems']]))
+    sys.exit(1)
+
+  
+  # This is not really efficient, but lists of things should be lists
+  # this just grabs the first one from the list.
+  # TODO: check the selectors={} to find the one with the right name
+  system_spec = [s for s in fw_data['systems'] if s['name'] == sysgen][0]
+  device_spec = system_spec['devices']
 
   # Check the dmidecode output to determine which hardware we're on
   product_string = system_product_name()
   logging.info("Product String: {}".format(product_string))
+
+  # check OS
+  if is_redhat():
+    # add/update the hp-spp yum repo
+    if opts.install:
+      yum_fd = open(opts.yum_repo_file, "w+")
+      write_hp_firmware_yum_repo_spec(system_spec['spp'], rpm_source='hp', repo_fd=yum_fd)
+      yum_fd.close()
+
+    prereqs_confirmed = check_redhat_prerequisites(opts.install)
 
   # expand to this later:
   # https://stackoverflow.com/questions/3223604/how-to-create-a-temporary-directory-and-get-the-path-file-name-in-python
@@ -1096,12 +1096,12 @@ if __name__ == "__main__":
 
   # Create device objects for the requested subsystems
   devices = load_devices(opts.subsystems)
+  logging.debug("There are {} devices found".format(len(devices)))
   
   # Load the firmware availablility data for the requested subsystems (and BIOS has flavors)
-  #firmwares = load_firmwares(opts.firmware_data, opts.subsystems, {'bios': opts.bios_name})
-  firmwares = load_firmwares(opts.firmware_data)
-  
+  firmwares = load_firmwares(system_spec['devices'])
 
+  logging.debug("There are {} firmwares found".format(len(firmwares)))
   # map a firmware to each device
   for device in devices:
     device.map_firmware(firmwares, selectors={'bios': opts.bios_name})

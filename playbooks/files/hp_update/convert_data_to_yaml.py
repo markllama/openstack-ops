@@ -11,8 +11,8 @@ device_map = {
   'SYSTEM': {'type': 'bios', 'name': 'bios'},
   'SYSTEM-MELTDOWN': {'type': 'bios', 'name': 'meltdown'},
   'RAID': {'type': 'raid', 'name': 'raid'},
-  'NIC': {'type': 'nic', 'name': 'nic'},
-  'INIC': {'type': 'nic', 'name': 'inic'}
+  'NIC': {'type': 'nic', 'name': 'broadcom nic', 'driver': 'tg3'},
+  'INIC': {'type': 'nic', 'name': 'intel nic', 'driver': 'ixgbe'}
 }
 
 device_type_map = {
@@ -48,6 +48,9 @@ def convert_device(dtype, dspec):
       'md5': dspec['md5']
     }
   }
+
+  if spec['type'] == 'nic':
+    spec['driver'] = device_map[dtype]['driver']
 
   if type(dspec['ver']) == str:
     spec['versions'] = [

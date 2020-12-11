@@ -26,6 +26,7 @@ import argparse
 import json
 import logging
 import os
+import pexpect
 import re
 import shutil
 import subprocess
@@ -371,14 +372,13 @@ class Firmware(object):
   
   def __init__(self,
                name=None,
-               fw_type=None,
                driver=None,
                versions=[],
                package_name=None,
                package_md5=None):
 
     self.name = name
-    self.type = fw_type
+    #self.type = fw_type
     self.driver = driver
     self.versions = versions
     self.package_name = package_name
@@ -392,7 +392,9 @@ class Firmware(object):
     Create a Firmware object from a dictionary loaded from YAML or JSON
     """
     keys = structure.keys()
-    f = Firmware()
+
+    f = firmware_types[structure['type']]()
+    #f = Firmware()
     f.name = structure['name'] if 'name' in keys else None
     f.type = structure['type'] if 'type' in keys else None
     f.driver = structure['driver'] if 'driver' in keys else None
@@ -413,10 +415,16 @@ class Firmware(object):
   
   @property
   def package_file(self):
+    """
+    TBD
+    """
     return os.path.join(self._package_dir, self.package_name)
 
   @property
   def _package_dir(self):
+    """
+    TBD
+    """
     pd = os.path.join(self.tmp_dir, 'rpms')
     if not os.path.exists(pd):
       os.mkdir(pd)
@@ -424,6 +432,9 @@ class Firmware(object):
 
   @property
   def _unpack_root(self):
+    """
+    TBD
+    """
     ur = os.path.join(self.tmp_dir, 'unpack')
     if not os.path.exists(ur):
       os.mkdir(ur)
@@ -431,10 +442,30 @@ class Firmware(object):
 
   @property
   def _unpack_dir(self):
+    """
+    TBD
+    """
     ud = os.path.join(self._unpack_root, self.package_name)
     if not os.path.exists(ud):
       os.mkdir(ud)
     return ud
+
+  @property
+  def _install_dir(self):
+    """
+    TBD
+    """
+
+    id = None
+    for dirspec in os.walk(self._unpack_dir):
+      if 'hpsetup' in dirspec[2]:
+        id = dirspec[0]
+        break
+
+    if id == None:
+      raise Exception("no hpsetup script in unpacked cpio: {}".format(self._unpack_dir))
+
+    return id
 
   # -------------------------------------------------------------------------
   # Reporting Methods
@@ -509,26 +540,122 @@ class Firmware(object):
     # find the directory that contains the hpsetup script in the unpack dir
     setup_dir = [ ds[0] for ds in os.walk(self._unpack_dir) if 'hpsetup' in ds[2] ][0]
 
-    install_cmd = "/bin/echo /usr/bin/env bash ./hpsetup"
-    logging.debug("install command: {}".format(install_cmd))
+    # Each firmware type has it's own install process
+    logging.error("should not be running the generic installer")
+
+class IlomFirmware(Firmware):
+  """
+  """
+
+  def __init__(self, **kwargs):
+    super(IlomFirmware, self).__init__(kwargs)
+    self.type = 'ilom'
+
+  def install(self, unpack_dir=None):
+    logging.debug("running the ILOM firmware installer")
+
+class BiosFirmware(Firmware):
+  """
+  """
+
+  def __init__(self, **kwargs):
+    super(BiosFirmware, self).__init__(kwargs)
+    self.type = 'bios'
+
+  def install(self):
+    logging.debug("running the BIOS firmware installer")
+
+    cwd = os.getcwd()
+
+    # find the hpsetup script down inside.
+    
+    os.chdir(self._install_dir)
+    proc = pexpect.spawn("./hpsetup")
+    response = proc.expect(["(upgrade|downgrade).*\(y/n\) \?"])
+    proc.sendline("y")
+    response = proc.expect("Working")
+    print("Working - wait for success")
+    # flash can take 2-3 min.  Allow 5
+    response = proc.expect(
+      ["The installation procedure completed successfully.", pexpect.TIMEOUT],
+      timeout=300)
+    if response == 0:
+      print("update successful")
+      # do not reboot
+      response = proc.expect("Do you want to reboot your system now\? ")
+      if response == 0:
+        print("reboot query detected. sending no")
+        proc.sendline("n")
+    else:
+      print("ERROR: timed out")
+    
+    proc.kill(0)
+
+    os.chdir(cwd)
+
+class RaidFirmware(Firmware):
+  """
+  """
+
+  def __init__(self, **kwargs):
+    super(RaidFirmware, self).__init__(kwargs)
+    self.type = 'raid'
+
+  def install(self):
+    logging.debug("running the RAID firmware installer")
+
+    cwd = os.getcwd()
+
+    # find the hpsetup script down inside.
+    os.chdir(self._install_dir)
+    proc = pexpect.spawn("./hpsetup")
+    response = proc.expect(["Select which devices to flash \[#,#-#,\(A\)ll,\(N\)one\]>"])
+    proc.sendline("A")
+
+    response = proc.expect("Flashing Smart Array")
+    print("Working - wait for success")
+    # flash can take 2-3 min.  Allow 5
+    response = proc.expect(
+      ["Smart Component Finished", pexpect.TIMEOUT],
+      timeout=300)
+    if response == 0:
+      print("update complete")
+    else:
+      print("ERROR: timed out waiting for complete")
+    response = proc.expect(["Exit Status: (\d)", pexpect.TIMEOUT])
+    if response == 0:
+      print("update successful: exit status: {}".format(proc.match.group(1)))
+    else:
+      print("ERROR: timed out waiting for exit status")
+    
+    proc.expect(pexpect.EOF)
+    proc.close()
+
+    os.chdir(cwd)
 
     
-    install = subprocess.Popen(install_cmd.split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=setup_dir)
-    (stdin, stdout) = install.communicate()
-    #stdout = stdout.decode(encoding='UTF-8')
-    print("install stdout: {}".format(stdout))
+class NicFirmware(Firmware):
+  """
+  """
 
-  # expect
-  #   <path>/hpsetup
-  #
-  #   expect("Continue (y/N)?")
-  #   sendline("y")
-  #   expect("Succeded.")
-  #   expect("iLO 4 reboot completed.")
-  
+  def __init__(self, **kwargs):
+    super(NicFirmware, self).__init__(kwargs)
+    self.type = 'nic'
 
-    pass
+  def install(self):
+    logging.debug("running the NIC firmware installer")
 
+
+firmware_types = {
+  'ilom': IlomFirmware,
+  'bios': BiosFirmware,
+  'raid': RaidFirmware,
+  'nic': NicFirmware,
+  'inic': NicFirmware
+}
+
+
+    
 def load_firmwares(fw_specs):
 
   # is this a known system type?
@@ -692,7 +819,35 @@ class BiosDevice(Device):
     logging.debug("(BiosDevice) Assigning device {} to firmware {}({})".format(self._fw_type, self.firmware, self.firmware.name))
 
     self.firmware._devices += [self]
+  def upgrade(self, workdir):
+    """
+    """
+    cwd = os.getcwd()
+    os.chdir(workdir)
+    proc = pexpect.spawn("./hpsetup")
+    response = proc.expect(["(upgrade|downgrade).*\(y/n\) \?"])
+    proc.sendline("y")
+    response = proc.expect("Working")
+    print("Working - wait for success")
+    # flash can take 2-3 min.  Allow 5
+    response = proc.expect(
+      ["The installation procedure completed successfully.", pexpect.TIMEOUT],
+      timeout=300)
+    if response == 0:
+      print("update successful")
+      # do not reboot
+      response = proc.expect("Do you want to reboot your system now\? ")
+      if response == 0:
+        print("reboot query detected. sending no")
+        proc.sendline("n")
+      else:
+        print("ERROR: timed out")
 
+    proc.kill(0)
+
+    os.chdir(cwd)
+
+    
 class RaidDevice(Device):
   _fw_type = "raid"
   _check_pattern = "^\s*Firmware Version: (.*)$"
@@ -1126,7 +1281,6 @@ if __name__ == "__main__":
 
   logging.info("updating these firmware types: {}".format(opts.subsystems))
 
-  # we can print here the list of firmwares that need updating
   for f in outofdate:
     if f.type in opts.subsystems:
       if opts.verbose == True:
